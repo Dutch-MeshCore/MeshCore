@@ -13,6 +13,7 @@ Commands:
   build-matching-firmwares <build-match-spec>: Build all firmwares for build targets containing the string given for <build-match-spec>.
   build-companion-firmwares: Build all companion firmwares for all build targets.
   build-repeater-firmwares: Build all repeater firmwares for all build targets.
+  build-dmc-repeater-firmwares: Build all DMC repeater firmwares (same set as build-repeater-firmwares).
   build-room-server-firmwares: Build all chat room server firmwares for all build targets.
 
 Examples:
@@ -208,6 +209,13 @@ build_repeater_firmwares() {
 
 }
 
+build_dmc_repeater_firmwares() {
+
+  # build all repeater firmwares (same set as build-repeater-firmwares)
+  build_all_firmwares_by_suffix "_repeater"
+
+}
+
 build_companion_firmwares() {
 
 #  # build specific companion firmwares
@@ -273,6 +281,8 @@ elif [[ $1 == "build-companion-firmwares" ]]; then
   build_companion_firmwares
 elif [[ $1 == "build-repeater-firmwares" ]]; then
   build_repeater_firmwares
+elif [[ $1 == "build-dmc-repeater-firmwares" ]]; then
+  build_dmc_repeater_firmwares
 elif [[ $1 == "build-room-server-firmwares" ]]; then
   build_room_server_firmwares
 fi
