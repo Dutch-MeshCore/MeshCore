@@ -210,10 +210,14 @@ build_repeater_firmwares() {
 }
 
 build_dmc_repeater_firmwares() {
-
-  # build all repeater firmwares (same set as build-repeater-firmwares)
-  build_all_firmwares_by_suffix "_repeater"
-
+  # Only build specific repeaters for now (add more on request)
+  build_firmware "Heltec_t114_repeater"
+  build_firmware "Heltec_v3_repeater"
+  build_firmware "heltec_v4_repeater"
+  build_firmware "LilyGo_T-Echo_repeater"
+  build_firmware "RAK_4631_repeater"
+  build_firmware "SenseCap_Solar_repeater"
+  build_firmware "Xiao_S3_WIO_repeater"
 }
 
 build_companion_firmwares() {
