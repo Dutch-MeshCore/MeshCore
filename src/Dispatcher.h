@@ -78,6 +78,12 @@ public:
 
   virtual float getLastRSSI() const { return 0; }
   virtual float getLastSNR() const { return 0; }
+
+  // Accessors used by the MQTT observer/stats reporting. Default to 0 (not
+  // tracked) on the base interface; concrete radios may override.
+  virtual uint8_t getRadioState() const { return 0; }
+  virtual unsigned long getLastRecvMillis() const { return 0; }
+  virtual uint32_t getPacketsRecvErrors() const { return 0; }
 };
 
 /**
@@ -187,6 +193,8 @@ public:
   uint32_t getNumSentDirect() const { return n_sent_direct; }
   uint32_t getNumRecvFlood() const { return n_recv_flood; }
   uint32_t getNumRecvDirect() const { return n_recv_direct; }
+  uint16_t getErrFlags() const { return _err_flags; }   // used by MQTT observer stats
+  bool hasOutbound() const { return outbound != NULL; } // used by MQTT observer stats
   void resetStats() {
     n_sent_flood = n_sent_direct = n_recv_flood = n_recv_direct = 0;
     _err_flags = 0;

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Mesh.h>
 #include <RTClib.h>
+#include <CayenneLPP.h>
 #include <target.h>
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -23,7 +24,17 @@
 #define WITH_BRIDGE
 #endif
 
+#ifdef WITH_MQTT_BRIDGE
+#include "helpers/bridges/MQTTBridge.h"
+#define WITH_BRIDGE
+#endif
+
+#ifdef WITH_SNMP
+#include "helpers/SNMPAgent.h"
+#endif
+
 #include <helpers/AdvertDataHelpers.h>
+#include <helpers/AlertReporter.h>
 #include <helpers/ArduinoHelpers.h>
 #include <helpers/ClientACL.h>
 #include <helpers/CommonCLI.h>
@@ -35,10 +46,6 @@
 #include <helpers/RegionMap.h>
 #include "RateLimiter.h"
 #include "Filter.h"
-
-#ifdef WITH_BRIDGE
-extern AbstractBridge* bridge;
-#endif
 
 struct RepeaterStats {
   uint16_t batt_milli_volts;
@@ -74,7 +81,7 @@ struct NeighbourInfo {
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "DutchMeshcore.nl - v1.16.0"
+  #define FIRMWARE_VERSION   "DutchMeshcore.nl - v1.16.0-mqtt"
 #endif
 
 #define FIRMWARE_ROLE "repeater"
@@ -119,7 +126,13 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   RS232Bridge bridge;
 #elif defined(WITH_ESPNOW_BRIDGE)
   ESPNowBridge bridge;
+#elif defined(WITH_MQTT_BRIDGE)
+  MQTTBridge* bridge;
 #endif
+#ifdef WITH_SNMP
+  MeshSNMPAgent _snmp_agent;
+#endif
+  AlertReporter _alerter;
 
   void putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr);
   uint8_t handleLoginReq(const mesh::Identity& sender, const uint8_t* secret, uint32_t sender_timestamp, const uint8_t* data, bool is_flood);
@@ -201,6 +214,10 @@ public:
 
   // CommonCLICallbacks
   void applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, int timeout_mins) override;
+
+  void onAlertConfigChanged() override { _alerter.onConfigChanged(); }
+  bool sendAlertText(const char* text) override { return _alerter.sendText(text); }
+  bool resolveAlertScope(TransportKey& dest) override;
   bool formatFileSystem() override;
   void sendSelfAdvertisement(int delay_millis, bool flood) override;
   void updateAdvertTimer() override;
@@ -218,6 +235,7 @@ public:
   void removeNeighbor(const uint8_t* pubkey, int key_len) override;
   void formatStatsReply(char *reply) override;
   void formatRadioStatsReply(char *reply) override;
+  void formatRadioDiagReply(char *reply) override;
   void formatPacketStatsReply(char *reply) override;
   void startRegionsLoad() override;
   bool saveRegions() override;
@@ -233,21 +251,64 @@ public:
 
 #if defined(WITH_BRIDGE)
   void setBridgeState(bool enable) override {
-    if (enable == bridge.isRunning()) return;
+    if (!bridge) {
+#ifdef WITH_MQTT_BRIDGE
+      bridge = new MQTTBridge(&_prefs, _mgr, getRTCClock(), &self_id);
+#endif
+      if (!bridge) return;
+    }
+    if (enable == bridge->isRunning()) return;
     if (enable)
     {
-      bridge.begin();
+      // Set device metadata before starting bridge (same as in begin())
+      char device_id[65];
+      mesh::LocalIdentity self_id = getSelfId();
+      mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
+      bridge->setDeviceID(device_id);
+      bridge->setFirmwareVersion(getFirmwareVer());
+      bridge->setBoardModel(_cli.getBoard()->getManufacturerName());
+      bridge->setBuildDate(getBuildDate());
+#ifdef WITH_MQTT_BRIDGE
+      bridge->setStatsSources(this, _radio, _cli.getBoard(), _ms);
+#endif
+      bridge->begin();
+#ifdef WITH_MQTT_BRIDGE
+      _alerter.setBridge(bridge);
+#endif
     }
-    else 
+    else
     {
-      bridge.end();
+      bridge->end();
+#ifdef WITH_MQTT_BRIDGE
+      _alerter.setBridge(nullptr);
+#endif
     }
   }
 
   void restartBridge() override {
-    if (!bridge.isRunning()) return;
-    bridge.end();
-    bridge.begin();
+    if (!bridge || !bridge->isRunning()) return;
+    bridge->end();
+    // Set device metadata before restarting bridge (same as in begin())
+    char device_id[65];
+    mesh::LocalIdentity self_id = getSelfId();
+    mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
+    bridge->setDeviceID(device_id);
+    bridge->setFirmwareVersion(getFirmwareVer());
+    bridge->setBoardModel(_cli.getBoard()->getManufacturerName());
+    bridge->setBuildDate(getBuildDate());
+#ifdef WITH_MQTT_BRIDGE
+    bridge->setStatsSources(this, _radio, _cli.getBoard(), _ms);
+#endif
+    bridge->begin();
+  }
+
+  void restartBridgeSlot(int slot) override {
+    if (!bridge || !bridge->isRunning()) return;
+    bridge->setSlotPreset(slot, _prefs.mqtt_slot_preset[slot]);
+  }
+
+  int getQueueSize() override {
+    return bridge ? bridge->getQueueSize() : 0;
   }
 #endif
 

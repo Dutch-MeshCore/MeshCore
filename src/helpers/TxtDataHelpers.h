@@ -17,4 +17,5 @@ public:
   static const char* ftoa3(float f); //Converts float to string with 3 decimal places
   static bool isBlank(const char* str);
   static uint32_t fromHex(const char* src);
+  static void stripSurroundingQuotes(char* str, size_t buf_sz);
 };

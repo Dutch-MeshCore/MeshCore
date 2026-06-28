@@ -140,7 +140,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
   if (payload[0] == REQ_TYPE_GET_STATUS) {
     ServerStats stats;
     stats.batt_milli_volts = board.getBattMilliVolts();
-    stats.curr_tx_queue_len = _mgr->getOutboundTotal();
+    stats.curr_tx_queue_len = _mgr->getOutboundCount(0xFFFFFFFF);
     stats.noise_floor = (int16_t)_radio->getNoiseFloor();
     stats.last_rssi = (int16_t)radio_driver.getLastRSSI();
     stats.n_packets_recv = radio_driver.getPacketsRecv();
@@ -201,14 +201,28 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
 
 void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 #if MESH_PACKET_LOGGING
-  Serial.print(getLogDateTime());
-  Serial.print(" RAW: ");
-  mesh::Utils::printHex(Serial, raw, len);
-  Serial.println();
+  if (Serial.availableForWrite() > 0) {
+    Serial.print(getLogDateTime());
+    Serial.print(" RAW: ");
+    mesh::Utils::printHex(Serial, raw, len);
+    Serial.println();
+  }
+#endif
+
+#ifdef WITH_MQTT_BRIDGE
+  if (_prefs.bridge_enabled) {
+    // Store raw radio data for MQTT messages (same as repeater)
+    if (bridge) bridge->storeRawRadioData(raw, len, snr, rssi);
+  }
 #endif
 }
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
+#ifdef WITH_MQTT_BRIDGE
+  // MQTT bridge: always feed RX packets — bridge decides based on mqtt.rx setting
+  if (_prefs.bridge_enabled && bridge) bridge->onPacketReceived(pkt);
+#endif
+
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
@@ -228,6 +242,11 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
   }
 }
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
+#ifdef WITH_MQTT_BRIDGE
+  // MQTT bridge: always feed TX packets — bridge decides based on mqtt.tx setting
+  if (_prefs.bridge_enabled && bridge) bridge->sendPacket(pkt);
+#endif
+
   if (_logging) {
     File f = openAppend(PACKET_LOG_FILE);
     if (f) {
@@ -619,6 +638,9 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
       region_map(key_store), temp_map(key_store),
       _cli(board, rtc, sensors, region_map, acl, &_prefs, this),
       telemetry(MAX_PACKET_PAYLOAD - 4)
+#ifdef WITH_MQTT_BRIDGE
+      , bridge(nullptr)
+#endif
 {
   last_millis = 0;
   uptime_millis = 0;
@@ -630,7 +652,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
 
   // defaults
   memset(&_prefs, 0, sizeof(_prefs));
-  _prefs.airtime_factor = 1.0;
+  _prefs.airtime_factor = 1.0;   // one half
   _prefs.rx_delay_base = 0.0f;   // off by default, was 10.0
   _prefs.tx_delay_factor = 0.5f; // was 0.25f;
   _prefs.direct_tx_delay_factor = 0.2f; // was zero
@@ -660,6 +682,39 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.gps_interval = 0;
   _prefs.advert_loc_policy = ADVERT_LOC_PREFS;
   _prefs.radio_fem_rxgain = 1;
+
+  // Alert channel defaults (same as repeater; off by default and unconfigured).
+  // Operator must pick `set alert.psk` or `set alert.hashtag` before alerts fire.
+  _prefs.alert_enabled = 0;
+  _prefs.alert_psk_hex[0] = '\0';
+  _prefs.alert_hashtag[0] = '\0';
+  _prefs.alert_region[0] = '\0';
+  _prefs.alert_wifi_minutes = 30;
+  _prefs.alert_mqtt_minutes = 240;
+  _prefs.alert_min_interval_min = 60;
+
+  // bridge defaults (same as repeater)
+  _prefs.bridge_enabled = 1;    // enabled
+  _prefs.bridge_delay   = 500;  // milliseconds
+  _prefs.bridge_pkt_src = 1;    // logRx (RX packets)
+  _prefs.bridge_baud = 115200;  // baud rate
+  _prefs.bridge_channel = 1;    // channel 1
+
+  // MQTT slot/IATA/timezone defaults come from /mqtt_prefs via loadPrefs (see MQTTDefaults.h)
+  _prefs.mqtt_origin[0] = '\0';
+
+  // WiFi defaults (user-configured via CLI; placeholders until set)
+  StrHelper::strncpy(_prefs.wifi_ssid, "ssid_here", sizeof(_prefs.wifi_ssid));
+  StrHelper::strncpy(_prefs.wifi_password, "password_here", sizeof(_prefs.wifi_password));
+
+  // Timezone defaults (same as repeater - Europe/Amsterdam with DST support)
+  StrHelper::strncpy(_prefs.timezone_string, "Europe/Amsterdam", sizeof(_prefs.timezone_string));
+  _prefs.timezone_offset = 1; // fallback
+
+  // MQTT slot presets (dutchmeshcore-1 and dutchmeshcore-2 enabled by default)
+  StrHelper::strncpy(_prefs.mqtt_slot_preset[0], "dutchmeshcore-1", sizeof(_prefs.mqtt_slot_preset[0]));
+  StrHelper::strncpy(_prefs.mqtt_slot_preset[1], "dutchmeshcore-2", sizeof(_prefs.mqtt_slot_preset[1]));
+  StrHelper::strncpy(_prefs.mqtt_slot_preset[2], "none", sizeof(_prefs.mqtt_slot_preset[2]));
 
   next_post_idx = 0;
   next_client_idx = 0;
@@ -711,6 +766,34 @@ void MyMesh::begin(FILESYSTEM *fs) {
 #if ENV_INCLUDE_GPS == 1
   applyGpsPrefs();
 #endif
+#ifdef WITH_MQTT_BRIDGE
+  if (_prefs.bridge_enabled) {
+    // Defer construction to avoid static init crashes on ESP32 classic
+    bridge = new MQTTBridge(&_prefs, _mgr, getRTCClock(), &self_id);
+    if (bridge) {
+      // Set device public key for MQTT topics
+      char device_id[65];
+      mesh::LocalIdentity self_id = getSelfId();
+      mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
+      MESH_DEBUG_PRINTLN("Setting device ID: %s", device_id);
+      bridge->setDeviceID(device_id);
+
+      // Set firmware version
+      bridge->setFirmwareVersion(getFirmwareVer());
+
+      // Set board model
+      bridge->setBoardModel(_cli.getBoard()->getManufacturerName());
+
+      // Set build date
+      bridge->setBuildDate(getBuildDate());
+
+      // Set stats sources for automatic stats collection
+      bridge->setStatsSources(this, _radio, _cli.getBoard(), _ms);
+
+      bridge->begin();
+    }
+  }
+#endif
 }
 
 void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis, uint8_t path_hash_size) {
@@ -722,6 +805,24 @@ void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint3
     codes[1] = 0;  // REVISIT: set to 'home' Region, for sender/return region?
     sendFlood(pkt, codes, delay_millis, path_hash_size);
   }
+}
+
+bool MyMesh::resolveAlertScope(TransportKey& dest) {
+  // Same resolution policy as simple_repeater: alert.region > default_scope.
+  // The room server doesn't currently embed an AlertReporter, but keeping
+  // the override in lockstep means the callback path works the same on both
+  // builds and we won't get caught out if/when it does.
+  if (_prefs.alert_region[0]) {
+    auto r = region_map.findByNamePrefix(_prefs.alert_region);
+    if (r && region_map.getTransportKeysFor(*r, &dest, 1) > 0 && !dest.isNull()) {
+      return true;
+    }
+  }
+  if (!default_scope.isNull()) {
+    dest = default_scope;
+    return true;
+  }
+  return false;
 }
 
 void MyMesh::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uint8_t path_hash_size) {
@@ -775,7 +876,7 @@ void MyMesh::sendSelfAdvertisement(int delay_millis, bool flood) {
 
 void MyMesh::updateAdvertTimer() {
   if (_prefs.advert_interval > 0) { // schedule local advert timer
-    next_local_advert = futureMillis((uint32_t)_prefs.advert_interval * 2 * 60 * 1000);
+    next_local_advert = futureMillis((int)((uint32_t)_prefs.advert_interval * 2 * 60 * 1000));
   } else {
     next_local_advert = 0; // stop the timer
   }
@@ -947,7 +1048,12 @@ bool MyMesh::saveFilter(ClientInfo* client) {
 }
 
 void MyMesh::loop() {
+  // Check radio FIRST to ensure we don't miss incoming packets
+  // MQTT processing can take time, so we prioritize radio reception
   mesh::Mesh::loop();
+#ifdef WITH_MQTT_BRIDGE
+  // bridge.loop() is now handled by FreeRTOS task on Core 0 - no need to call it here
+#endif
 
   if (millisHasNowPassed(next_push) && acl.getNumClients() > 0) {
     // check for ACK timeouts

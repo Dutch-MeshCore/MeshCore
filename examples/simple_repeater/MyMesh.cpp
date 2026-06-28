@@ -1,5 +1,6 @@
 #include "MyMesh.h"
 #include <algorithm>
+#include <stdlib.h>  // for qsort()
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -144,6 +145,39 @@ uint8_t MyMesh::handleLoginReq(const mesh::Identity& sender, const uint8_t* secr
   return 13;  // reply length
 }
 
+// Comparison functions for qsort() - defined at file scope to avoid heap allocations
+static int cmp_neighbours_newest_to_oldest(const void* a, const void* b) {
+  const NeighbourInfo* na = *(const NeighbourInfo**)a;
+  const NeighbourInfo* nb = *(const NeighbourInfo**)b;
+  if (nb->heard_timestamp > na->heard_timestamp) return 1;
+  if (nb->heard_timestamp < na->heard_timestamp) return -1;
+  return 0;
+}
+
+static int cmp_neighbours_oldest_to_newest(const void* a, const void* b) {
+  const NeighbourInfo* na = *(const NeighbourInfo**)a;
+  const NeighbourInfo* nb = *(const NeighbourInfo**)b;
+  if (na->heard_timestamp > nb->heard_timestamp) return 1;
+  if (na->heard_timestamp < nb->heard_timestamp) return -1;
+  return 0;
+}
+
+static int cmp_neighbours_strongest_to_weakest(const void* a, const void* b) {
+  const NeighbourInfo* na = *(const NeighbourInfo**)a;
+  const NeighbourInfo* nb = *(const NeighbourInfo**)b;
+  if (nb->snr > na->snr) return 1;
+  if (nb->snr < na->snr) return -1;
+  return 0;
+}
+
+static int cmp_neighbours_weakest_to_strongest(const void* a, const void* b) {
+  const NeighbourInfo* na = *(const NeighbourInfo**)a;
+  const NeighbourInfo* nb = *(const NeighbourInfo**)b;
+  if (na->snr > nb->snr) return 1;
+  if (na->snr < nb->snr) return -1;
+  return 0;
+}
+
 uint8_t MyMesh::handleAnonRegionsReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data) {
   if (anon_limiter.allow(rtc_clock.getCurrentTime())) {
     // request data has: {reply-path-len}{reply-path}
@@ -219,7 +253,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
   if (payload[0] == REQ_TYPE_GET_STATUS) {  // guests can also access this now
     RepeaterStats stats;
     stats.batt_milli_volts = board.getBattMilliVolts();
-    stats.curr_tx_queue_len = _mgr->getOutboundTotal();
+    stats.curr_tx_queue_len = _mgr->getOutboundCount(0xFFFFFFFF);
     stats.noise_floor = (int16_t)_radio->getNoiseFloor();
     stats.last_rssi = (int16_t)radio_driver.getLastRSSI();
     stats.n_packets_recv = radio_driver.getPacketsRecv();
@@ -299,45 +333,50 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
         MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS invalid pubkey_prefix_length=%d clamping to %d", pubkey_prefix_length, PUB_KEY_SIZE);
       }
 
-      // create copy of neighbours list, skipping empty entries so we can sort it separately from main list
+      // Early exit if no neighbours to avoid unnecessary processing
       int16_t neighbours_count = 0;
 #if MAX_NEIGHBOURS
       NeighbourInfo* sorted_neighbours[MAX_NEIGHBOURS];
+#endif
       for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-        auto neighbour = &neighbours[i];
-        if (neighbour->heard_timestamp > 0) {
-          sorted_neighbours[neighbours_count] = neighbour;
+        if (neighbours[i].heard_timestamp > 0) {
           neighbours_count++;
         }
       }
+      
+      if (neighbours_count == 0) {
+        // No neighbours - return minimal response
+        memcpy(&reply_data[reply_offset], &neighbours_count, 2); reply_offset += 2;
+        uint16_t zero = 0;
+        memcpy(&reply_data[reply_offset], &zero, 2); reply_offset += 2; // results_count = 0
+        return reply_offset;
+      }
 
-      // sort neighbours based on order
+      // create copy of neighbours list, skipping empty entries so we can sort it separately from main list
+      int16_t sorted_idx = 0;
+      for (int i = 0; i < MAX_NEIGHBOURS; i++) {
+        auto neighbour = &neighbours[i];
+        if (neighbour->heard_timestamp > 0) {
+          sorted_neighbours[sorted_idx++] = neighbour;
+        }
+      }
+
+      // Sort neighbours based on order using qsort() - standard C library function
+      // qsort() doesn't allocate heap memory (uses stack-based recursion) and is O(n log n)
+      // This matches the pattern used elsewhere in the codebase (e.g., BaseChatMesh)
       if (order_by == 0) {
         // sort by newest to oldest
-        MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting newest to oldest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->heard_timestamp > b->heard_timestamp; // desc
-        });
+        qsort(sorted_neighbours, neighbours_count, sizeof(NeighbourInfo*), cmp_neighbours_newest_to_oldest);
       } else if (order_by == 1) {
         // sort by oldest to newest
-        MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting oldest to newest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->heard_timestamp < b->heard_timestamp; // asc
-        });
+        qsort(sorted_neighbours, neighbours_count, sizeof(NeighbourInfo*), cmp_neighbours_oldest_to_newest);
       } else if (order_by == 2) {
         // sort by strongest to weakest
-        MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting strongest to weakest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->snr > b->snr; // desc
-        });
+        qsort(sorted_neighbours, neighbours_count, sizeof(NeighbourInfo*), cmp_neighbours_strongest_to_weakest);
       } else if (order_by == 3) {
         // sort by weakest to strongest
-        MESH_DEBUG_PRINTLN("REQ_TYPE_GET_NEIGHBOURS sorting weakest to strongest");
-        std::sort(sorted_neighbours, sorted_neighbours + neighbours_count, [](const NeighbourInfo* a, const NeighbourInfo* b) {
-          return a->snr < b->snr; // asc
-        });
+        qsort(sorted_neighbours, neighbours_count, sizeof(NeighbourInfo*), cmp_neighbours_weakest_to_strongest);
       }
-#endif
 
       // build results buffer
       int results_count = 0;
@@ -467,17 +506,30 @@ const char *MyMesh::getLogDateTime() {
 
 void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 #if MESH_PACKET_LOGGING
-  Serial.print(getLogDateTime());
-  Serial.print(" RAW: ");
-  mesh::Utils::printHex(Serial, raw, len);
-  Serial.println();
+  if (Serial.availableForWrite() > 0) {
+    Serial.print(getLogDateTime());
+    Serial.print(" RAW: ");
+    mesh::Utils::printHex(Serial, raw, len);
+    Serial.println();
+  }
+#endif
+
+#ifdef WITH_BRIDGE
+  if (_prefs.bridge_enabled) {
+    // Store raw radio data for MQTT messages
+    if (bridge) bridge->storeRawRadioData(raw, len, snr, rssi);
+  }
 #endif
 }
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
-#ifdef WITH_BRIDGE
+#ifdef WITH_MQTT_BRIDGE
+  // MQTT bridge: always feed RX packets — bridge decides based on mqtt.rx setting
+  if (bridge) bridge->onPacketReceived(pkt);
+#elif defined(WITH_BRIDGE)
+  // Non-MQTT bridge (ESP-NOW): use bridge.source setting
   if (_prefs.bridge_pkt_src == 1) {
-    bridge.sendPacket(pkt);
+    if (bridge) bridge->onPacketReceived(pkt);
   }
 #endif
 
@@ -501,9 +553,13 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
 }
 
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
-#ifdef WITH_BRIDGE
+#ifdef WITH_MQTT_BRIDGE
+  // MQTT bridge: always feed TX packets — bridge decides based on mqtt.tx setting
+  if (bridge) bridge->sendPacket(pkt);
+#elif defined(WITH_BRIDGE)
+  // Non-MQTT bridge (ESP-NOW): use bridge.source setting
   if (_prefs.bridge_pkt_src == 0) {
-    bridge.sendPacket(pkt);
+    if (bridge) bridge->sendPacket(pkt);
   }
 #endif
 
@@ -777,9 +833,7 @@ bool MyMesh::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t 
 
 void MyMesh::onControlDataRecv(mesh::Packet* packet) {
   uint8_t type = packet->payload[0] & 0xF0;    // just test upper 4 bits
-  if (type == CTL_TYPE_NODE_DISCOVER_REQ && packet->payload_len >= 6
-      && !_prefs.disable_fwd && discover_limiter.allow(rtc_clock.getCurrentTime())
-  ) {
+  if (type == CTL_TYPE_NODE_DISCOVER_REQ && packet->payload_len >= 6 && discover_limiter.allow(rtc_clock.getCurrentTime())) {
     int i = 1;
     uint8_t  filter = packet->payload[i++];
     uint32_t tag;
@@ -858,9 +912,10 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
       _filter(acl, rtc)
 #if defined(WITH_RS232_BRIDGE)
       , bridge(&_prefs, WITH_RS232_BRIDGE, _mgr, &rtc)
-#endif
-#if defined(WITH_ESPNOW_BRIDGE)
+#elif defined(WITH_ESPNOW_BRIDGE)
       , bridge(&_prefs, _mgr, &rtc)
+#elif defined(WITH_MQTT_BRIDGE)
+      , bridge(nullptr)
 #endif
 {
   last_millis = 0;
@@ -877,7 +932,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
 
   // defaults
   memset(&_prefs, 0, sizeof(_prefs));
-  _prefs.airtime_factor = 1.0;
+  _prefs.airtime_factor = 1.0;   // one half
   _prefs.rx_delay_base = 0.0f;   // turn off by default, was 10.0;
   _prefs.tx_delay_factor = 0.5f; // was 0.25f
   _prefs.direct_tx_delay_factor = 0.3f; // was 0.2
@@ -897,20 +952,58 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_max_advert = 8;
   _prefs.interference_threshold = 0; // disabled
   _prefs.cad_enabled = 0;            // hardware CAD before TX (off by default; 'set cad on')
+#ifdef WITH_MQTT_BRIDGE
+  _prefs.agc_reset_interval = 7;    // 28 seconds (secs/4) — prevents AGC drift on long-running observers
+#endif
+  _prefs.radio_watchdog_minutes = 5; // 5 minutes default
+
+  // Alert channel defaults — disabled by default, and the channel is left
+  // unconfigured so a freshly-flashed observer never broadcasts on the
+  // well-known Public hashtag. Operators must explicitly pick a private
+  // key (`set alert.psk`) or a hashtag (`set alert.hashtag`) before alerts
+  // can fire. The sender prefix on outgoing alert messages is always the
+  // node name (`set name ...`), so there's no separate `alert.name`.
+  _prefs.alert_enabled = 0;
+  _prefs.alert_psk_hex[0] = '\0';
+  _prefs.alert_hashtag[0] = '\0';
+  _prefs.alert_region[0] = '\0';      // empty = use default_scope
+  _prefs.alert_wifi_minutes = 30;     // 30 minutes
+  _prefs.alert_mqtt_minutes = 240;    // 4 hours
+  _prefs.alert_min_interval_min = 60; // re-arm window: 1 hour
 
   // bridge defaults
   _prefs.bridge_enabled = 1;    // enabled
   _prefs.bridge_delay   = 500;  // milliseconds
-  _prefs.bridge_pkt_src = 0;    // logTx
+  _prefs.bridge_pkt_src = 1;    // logRx (RX packets)
   _prefs.bridge_baud = 115200;  // baud rate
   _prefs.bridge_channel = 1;    // channel 1
 
   StrHelper::strncpy(_prefs.bridge_secret, "LVSITANOS", sizeof(_prefs.bridge_secret));
 
+  // SNMP defaults
+  _prefs.snmp_enabled = 0;
+  StrHelper::strncpy(_prefs.snmp_community, "public", sizeof(_prefs.snmp_community));
+
   // GPS defaults
   _prefs.gps_enabled = 0;
   _prefs.gps_interval = 0;
   _prefs.advert_loc_policy = ADVERT_LOC_PREFS;
+
+  // MQTT slot/IATA/timezone defaults come from /mqtt_prefs via loadPrefs (see MQTTDefaults.h)
+  _prefs.mqtt_origin[0] = '\0';
+
+  // WiFi defaults (user-configured via CLI; placeholders until set)
+  StrHelper::strncpy(_prefs.wifi_ssid, "ssid_here", sizeof(_prefs.wifi_ssid));
+  StrHelper::strncpy(_prefs.wifi_password, "password_here", sizeof(_prefs.wifi_password));
+
+  // Timezone defaults (Europe/Amsterdam with DST support)
+  StrHelper::strncpy(_prefs.timezone_string, "Europe/Amsterdam", sizeof(_prefs.timezone_string));
+  _prefs.timezone_offset = 1; // fallback
+
+  // MQTT slot presets (dutchmeshcore-1 and dutchmeshcore-2 enabled by default)
+  StrHelper::strncpy(_prefs.mqtt_slot_preset[0], "dutchmeshcore-1", sizeof(_prefs.mqtt_slot_preset[0]));
+  StrHelper::strncpy(_prefs.mqtt_slot_preset[1], "dutchmeshcore-2", sizeof(_prefs.mqtt_slot_preset[1]));
+  StrHelper::strncpy(_prefs.mqtt_slot_preset[2], "none", sizeof(_prefs.mqtt_slot_preset[2]));
 
   _prefs.adc_multiplier = 0.0f; // 0.0f means use default board multiplier
 
@@ -934,6 +1027,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   _fs = fs;
   // load persisted prefs
   _cli.loadPrefs(_fs);
+
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
@@ -961,8 +1055,51 @@ void MyMesh::begin(FILESYSTEM *fs) {
 
 #if defined(WITH_BRIDGE)
   if (_prefs.bridge_enabled) {
-    bridge.begin();
+#ifdef WITH_MQTT_BRIDGE
+    // Defer construction to avoid static init crashes on ESP32 classic
+    bridge = new MQTTBridge(&_prefs, _mgr, getRTCClock(), &self_id);
+#endif
+    if (bridge) {
+      // Set device public key for MQTT topics
+      char device_id[65];
+      mesh::LocalIdentity self_id = getSelfId();
+      mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
+      MESH_DEBUG_PRINTLN("Setting device ID: %s", device_id);
+      bridge->setDeviceID(device_id);
+
+      // Set firmware version
+      bridge->setFirmwareVersion(getFirmwareVer());
+
+      // Set board model
+      bridge->setBoardModel(_cli.getBoard()->getManufacturerName());
+
+      // Set build date
+      bridge->setBuildDate(getBuildDate());
+
+#ifdef WITH_MQTT_BRIDGE
+      // Set stats sources for automatic stats collection
+      bridge->setStatsSources(this, _radio, _cli.getBoard(), _ms);
+#ifdef WITH_SNMP
+      if (_prefs.snmp_enabled) {
+        _snmp_agent.setNodeName(_prefs.node_name);
+        _snmp_agent.setFirmwareVersion(getFirmwareVer());
+        bridge->setSNMPAgent(&_snmp_agent);
+      }
+#endif
+#endif
+
+      bridge->begin();
+    }
   }
+#endif
+
+  // Wire fault-alert reporter. begin() is safe regardless of bridge state.
+  // Passing `this` as the callbacks lets the reporter resolve a TransportKey
+  // scope (alert.region override, falling back to default_scope) so alert
+  // floods ride the same scope as adverts/channel messages.
+  _alerter.begin(&_prefs, this, this);
+#if defined(WITH_MQTT_BRIDGE)
+  _alerter.setBridge(bridge);
 #endif
 
   radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
@@ -975,8 +1112,6 @@ void MyMesh::begin(FILESYSTEM *fs) {
 
   updateAdvertTimer();
   updateFloodAdvertTimer();
-
-  board.setAdcMultiplier(_prefs.adc_multiplier);
 
 #if ENV_INCLUDE_GPS == 1
   applyGpsPrefs();
@@ -992,6 +1127,24 @@ void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint3
     codes[1] = 0;  // REVISIT: set to 'home' Region, for sender/return region?
     sendFlood(pkt, codes, delay_millis, path_hash_size);
   }
+}
+
+bool MyMesh::resolveAlertScope(TransportKey& dest) {
+  // Prefer an explicit alert.region override; look it up lazily via
+  // RegionMap so the operator can name a region that doesn't exist yet
+  // without polluting region_map state — we just silently fall through
+  // to default_scope on miss.
+  if (_prefs.alert_region[0]) {
+    auto r = region_map.findByNamePrefix(_prefs.alert_region);
+    if (r && region_map.getTransportKeysFor(*r, &dest, 1) > 0 && !dest.isNull()) {
+      return true;
+    }
+  }
+  if (!default_scope.isNull()) {
+    dest = default_scope;
+    return true;
+  }
+  return false;
 }
 
 void MyMesh::applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, int timeout_mins) {
@@ -1032,7 +1185,7 @@ void MyMesh::sendSelfAdvertisement(int delay_millis, bool flood) {
 
 void MyMesh::updateAdvertTimer() {
   if (_prefs.advert_interval > 0) { // schedule local advert timer
-    next_local_advert = futureMillis(((uint32_t)_prefs.advert_interval) * 2 * 60 * 1000);
+    next_local_advert = futureMillis((int)((uint32_t)_prefs.advert_interval * 2 * 60 * 1000));
   } else {
     next_local_advert = 0; // stop the timer
   }
@@ -1154,6 +1307,10 @@ void MyMesh::formatRadioStatsReply(char *reply) {
   StatsFormatHelper::formatRadioStats(reply, _radio, radio_driver, getTotalAirTime(), getReceiveAirTime());
 }
 
+void MyMesh::formatRadioDiagReply(char *reply) {
+  StatsFormatHelper::formatRadioDiag(reply, _radio, radio_driver, *_ms, _err_flags, hasOutbound());
+}
+
 void MyMesh::formatPacketStatsReply(char *reply) {
   StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(), 
                                        getNumRecvFlood(), getNumRecvDirect());
@@ -1273,11 +1430,13 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
 }
 
 void MyMesh::loop() {
-#ifdef WITH_BRIDGE
-  bridge.loop();
-#endif
-
+  // Check radio FIRST to ensure we don't miss incoming packets
+  // MQTT processing runs in a separate FreeRTOS task on Core 0, so we don't call bridge.loop() here
   mesh::Mesh::loop();
+
+#ifdef WITH_BRIDGE
+  // bridge.loop() is now handled by FreeRTOS task on Core 0 - no need to call it here
+#endif
 
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
     mesh::Packet *pkt = createSelfAdvert();
@@ -1315,12 +1474,33 @@ void MyMesh::loop() {
   uint32_t now = millis();
   uptime_millis += now - last_millis;
   last_millis = now;
+
+  _alerter.onLoop(now);
+
+#ifdef WITH_SNMP
+  // Push radio stats to SNMP agent every 2 seconds
+  if (_snmp_agent.isRunning()) {
+    static unsigned long last_snmp_stats = 0;
+    if (now - last_snmp_stats >= 2000) {
+      last_snmp_stats = now;
+      _snmp_agent.updateRadioStats(
+        radio_driver.getPacketsRecv(), radio_driver.getPacketsSent(),
+        radio_driver.getPacketsRecvErrors(),
+        (int16_t)_radio->getNoiseFloor(),
+        (int16_t)radio_driver.getLastRSSI(),
+        (int16_t)(radio_driver.getLastSNR() * 4),
+        getNumSentFlood(), getNumSentDirect(),
+        getNumRecvFlood(), getNumRecvDirect(),
+        getTotalAirTime() / 1000, uptime_millis / 1000);
+    }
+  }
+#endif
 }
 
 // To check if there is pending work
 bool MyMesh::hasPendingWork() const {
 #if defined(WITH_BRIDGE)
-  if (bridge.isRunning()) return true;  // bridge needs WiFi radio, can't sleep
+  if (bridge && bridge->isRunning()) return true;  // bridge needs WiFi radio, can't sleep
 #endif
-  return _mgr->getOutboundTotal() > 0;
+  return _mgr->getOutboundCount(0xFFFFFFFF) > 0;
 }
