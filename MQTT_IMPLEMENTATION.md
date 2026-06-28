@@ -398,6 +398,9 @@ These settings apply across all MQTT slots:
 - `get mqtt.interval` - Get status publish interval
 - `get mqtt.owner` - Get owner public key (serial console only)
 - `get mqtt.email` - Get owner email address (serial console only)
+- `get mqtt.ntp` - Get the effective primary NTP server
+- `get mqtt.ntp.diag` - Probe connectivity to all configured NTP servers (diagnostic only; never changes the clock). Serial console shows a detailed table; over LoRa a compact list.
+- `get mqtt.config.valid` - Report whether the MQTT config is complete enough to connect (`valid` / `invalid`)
 
 #### Set Commands
 - `set mqtt.origin <name>` - Set device origin name
@@ -413,6 +416,7 @@ These settings apply across all MQTT slots:
 - `set mqtt.interval <minutes>` - Set status publish interval (1-60 minutes)
 - `set mqtt.owner <64-hex-char-public-key>` - Set owner public key
 - `set mqtt.email <email>` - Set owner email address
+- `set mqtt.ntp <host>` - Set the NTP server used for time sync. `set mqtt.ntp none` clears it and reverts to the built-in default servers. The host is validated and an immediate sync is attempted when WiFi and the MQTT bridge are up (otherwise saved and synced later).
 
 ### WiFi Commands
 
@@ -462,6 +466,12 @@ These are standard MeshCore commands, not MQTT-specific, but important for obser
 - `set repeat on|off` - Enable/disable packet forwarding (use `off` for receive-only observers)
 - `set prv.key <64-hex-char-key>` - Restore private key (for migrating identity from another device)
 - `set tx <dBm>` - Set transmit power
+
+#### Observer Pull-OTA
+- `ota check` - Check this variant's baked-in manifest for a newer published build and report it; does **not** flash. Requires WiFi and an observer build that has a manifest URL.
+- `ota update` - If a newer build is available, download and flash it, then reboot (~30s offline). The flash is *deferred* so the command's ack reaches the mesh before the loop blocks; confirm with `ver` after the reboot.
+
+These are separate from `start ota`: `ota check` / `ota update` pull firmware **online** from the configured manifest (`OTA_MANIFEST_BASE`), whereas `start ota` opens a local SoftAP + web page to hand-upload a `.bin`. Builds without OTA (e.g. the 4MB T-Lora V2.1) report `ERR: online OTA not supported on this build`.
 
 ### Bridge Commands
 

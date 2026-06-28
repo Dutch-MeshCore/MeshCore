@@ -87,6 +87,17 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 **Usage:**
 - `start ota`
 
+**Note:** Opens a local Wi-Fi access point + web page for **hand-uploading** a firmware `.bin`. For online (pull) updates on MQTT observer builds, see `ota check` / `ota update` below.
+
+---
+
+### Pull an Over-The-Air update from the manifest (observer builds)
+**Usage:**
+- `ota check` — Check this variant's baked-in manifest for a newer published build and report it; does **not** flash.
+- `ota update` — If a newer build is available, download and flash it, then reboot (~30s offline). Deferred so the ack reaches the mesh before the flash; run `ver` after the reboot to confirm.
+
+**Note:** Online pull-OTA, distinct from `start ota` (hand-upload). Requires Wi-Fi and an MQTT observer build with a manifest URL (`OTA_MANIFEST_BASE`). Builds without OTA (e.g. the 4 MB T-Lora V2.1) report `ERR: online OTA not supported on this build`.
+
 ---
 
 ### Erase/Factory Reset
