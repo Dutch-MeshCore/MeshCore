@@ -8,6 +8,7 @@ on:
   push:
     tags:
       - 'room-server-*'
+      - '!room-server-mqtt-*'   # MQTT observer builds are handled by build-roomserver-mqtt-firmwares.yml
 
 jobs:
 
