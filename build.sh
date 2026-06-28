@@ -145,10 +145,10 @@ build_firmware() {
   FIRMWARE_FILENAME="$1-${FIRMWARE_VERSION_STRING}"
 
   # Tag the *embedded* version for observer/mqtt builds, e.g.
-  # v1.0.0-observer-mqtt-abcdef, so `ver`, the MQTT firmware_version/client_version,
-  # and SNMP all identify the fork. The filename above is intentionally left
-  # untagged: the env name already contains "observer", and the web flasher keys
-  # off that existing pattern.
+  # v1.0.0-dutchmeshcore.nl-observer-mqtt-abcdef, so `ver`, the MQTT
+  # firmware_version/client_version, and SNMP all identify the fork. The filename
+  # above is intentionally left untagged: the env name already contains "observer",
+  # and the web flasher keys off that existing pattern.
   VARIANT_TAG=""
   case "$1" in
     *observer*) VARIANT_TAG="${VARIANT_TAG}-observer" ;;
@@ -167,7 +167,12 @@ build_firmware() {
   if [ -n "$FIRMWARE_BUILD_NUMBER" ]; then
     BUILD_NUMBER_SUFFIX=".${FIRMWARE_BUILD_NUMBER}"
   fi
-  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${BUILD_NUMBER_SUFFIX}${VARIANT_TAG}-${COMMIT_HASH}"
+  # DMC fork branding, as a middle tag: placed AFTER the version + build-number and
+  # BEFORE the variant tag + hash so OTA version parsing still works (the device reads
+  # the version as the text before the first '-' and the hash as the text after the
+  # last '-' — the brand sits safely in between).
+  FORK_TAG="-dutchmeshcore.nl"
+  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${BUILD_NUMBER_SUFFIX}${FORK_TAG}${VARIANT_TAG}-${COMMIT_HASH}"
 
   # add firmware version info to end of existing platformio build flags in environment vars.
   # OTA_VARIANT is the env name ($1) — it selects this build's slim per-variant manifest
