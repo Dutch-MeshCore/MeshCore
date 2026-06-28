@@ -1,0 +1,173 @@
+name: Build MQTT Observer Firmwares
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - mqtt-bridge-implementation-flex
+
+env:
+  # Version embedded in firmware filenames; must match the version key in the
+  # flasher's config.json. Bump here when the observer version changes.
+  FIRMWARE_VERSION: v1.16.0
+  # Rolling release tag that hosts the latest observer binaries.
+  RELEASE_TAG: observer-mqtt-latest
+
+jobs:
+
+  # Discover the *_observer_mqtt envs and split them into SHARDS groups so the
+  # build fans out across runners (pio builds envs sequentially within a job).
+  enumerate:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.split.outputs.matrix }}
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v4
+
+      - name: Split observer envs into shards
+        id: split
+        shell: bash
+        run: |
+          SHARDS=14
+          ENVS=$(grep -rhoE '^\[env:[^]]*observer_mqtt\]' platformio.ini variants/*/platformio.ini \
+                 | sed -E 's/^\[env:(.*)\]$/\1/' | sort -u)
+          echo "Discovered envs:"; echo "$ENVS"
+          MATRIX=$(echo "$ENVS" | awk -v n="$SHARDS" '
+              { shard[NR % n] = shard[NR % n] " " $0 }
+              END { for (i = 0; i < n; i++) { sub(/^ /, "", shard[i]);
+                    printf "{\"idx\":%d,\"envs\":\"%s\"}\n", i, shard[i] } }' \
+              | jq -cs .)
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  # Build one shard (several envs) per runner. build.sh emits both the app
+  # .bin and the ESP32 -merged.bin into out/ for each env.
+  build:
+    needs: enumerate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.enumerate.outputs.matrix) }}
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v4
+
+      # Cache the installed PlatformIO platforms + toolchains (the espressif32
+      # toolchain + Arduino framework are pinned in platformio.ini, so they are
+      # identical across commits). This skips the multi-hundred-MB download AND
+      # re-extraction that otherwise happens on every fresh runner's first build.
+      # Note: compiled objects are not worth caching here because build.sh injects
+      # a changing -DFIRMWARE_VERSION/-DFIRMWARE_BUILD_DATE into the global build
+      # flags, which busts every object's compile-command checksum each build.
+      - name: Cache PlatformIO Toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-toolchains-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-toolchains-${{ runner.os }}-
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Shard ${{ matrix.shard.idx }}
+        run: /usr/bin/env bash build.sh build-firmware ${{ matrix.shard.envs }}
+
+      - name: Upload Shard Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.shard.idx }}
+          path: out
+          if-no-files-found: error
+
+  # Collect all shard outputs, publish the rolling release, then point the
+  # flasher at the new build by bumping the hash + notes in its config.json.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v4
+
+      - name: Download All Shard Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten into out/
+        run: |
+          mkdir -p out
+          find artifacts -type f -name '*.bin' -exec cp -f {} out/ \;
+          echo "Collected binaries:"; ls -1 out
+
+      - name: Compute Short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Rolling Release (tag pinned; assets replaced in place)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create the release + tag once, then never move the tag again. Moving a
+          # rolling tag on every build causes "conflicting tag" errors in local
+          # clones (and a brief 404 window from delete/recreate).
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --prerelease \
+              --title "MQTT Observer Firmwares" \
+              --notes "Rolling build of all *_observer_mqtt firmwares. The git short hash is embedded in each asset filename."
+          fi
+
+          # Upload this build, overwriting same-named assets.
+          gh release upload "$RELEASE_TAG" out/* --clobber
+
+          # Prune assets from older builds (current set already uploaded, so no gap).
+          keep=$(cd out && ls)
+          gh release view "$RELEASE_TAG" --json assets -q '.assets[].name' \
+            | while read -r asset; do
+                grep -qxF "$asset" <<<"$keep" || gh release delete-asset "$RELEASE_TAG" "$asset" --yes || true
+              done
+
+      - name: Checkout Flasher Repo
+        uses: actions/checkout@v4
+        with:
+          repository: agessaman/flasher.meshcore.io
+          token: ${{ secrets.FLASHER_DISPATCH_TOKEN }}
+          path: flasher
+
+      - name: Update Flasher Config
+        run: |
+          python3 flasher/scripts/update-firmware.py \
+            "${{ steps.sha.outputs.short }}" \
+            "$GITHUB_WORKSPACE/firmware-notes.html"
+
+      - name: Sync Docs into Flasher
+        run: |
+          # docs.html on the flasher site serves these raw .md files and renders
+          # them client-side; keep this list in sync with LOCAL_DOCS in
+          # flasher/docs.html.
+          for f in MQTT_IMPLEMENTATION.md MQTT_SNMP.md ALERTS.md; do
+            if [ -f "$f" ]; then
+              cp -f "$f" "flasher/$f"
+              echo "synced $f"
+            else
+              echo "WARNING: source doc $f not found" >&2
+            fi
+          done
+
+      - name: Commit & Push Flasher Config
+        working-directory: flasher
+        run: |
+          if git diff --quiet; then
+            echo "No flasher changes to commit."
+            exit 0
+          fi
+          git config user.name "meshcore-bot"
+          git config user.email "noreply@gessaman.com"
+          git commit -am "Update observer firmware to ${{ steps.sha.outputs.short }}"
+          git push
