@@ -139,14 +139,35 @@ On a device:
 - `ota check` → reports the available version / how many builds behind.
 - `ota update` → downloads + flashes + reboots into the new image.
 
-## 6. Publish access (for CI — not an admin runtime concern)
+## 6. Publish model — server pulls from GitHub (no credentials)
 
-The GitHub Actions publish workflow needs a way to upload the regenerated
-`*.json` manifests and `*.bin` files to the origin. Decide one of:
-- SSH + rsync/scp (provide a deploy key / restricted user with write access to
-  `/mqtt/`), or
-- an object store the origin serves from (S3 / R2 credentials), or
-- the origin pulls from a GitHub Release on a schedule/webhook.
+**Decided architecture:**
+- **Binaries live on GitHub Releases.** The MQTT CI (`build-*-mqtt-firmwares.yml`)
+  already publishes `‹env›-‹version›-‹hash›.bin` assets via
+  `softprops/action-gh-release` — no extra setup, no secrets.
+- **Manifests are served by a small Docker container** on the DMC side (behind
+  Cloudflare at `ota.dutchmeshcore.nl/mqtt/v/`). It is a *pull* mirror: it polls
+  the public GitHub Releases API every few minutes and regenerates the `*.json`.
+  No credentials are exchanged in either direction (CI uses the built-in
+  `GITHUB_TOKEN`; the container reads public releases anonymously).
 
-Whichever you choose, the publish step must also **purge the Cloudflare cache**
-for the updated `*.json` (or rely on the short TTL from step 3c).
+The manifest's `file` points **directly at the GitHub release asset URL** — the
+device's HTTPS `httpUpdate` follows GitHub's redirect and GitHub's CA is in the
+embedded bundle, so the bins never need to be mirrored to the DMC server. Only
+the tiny `*.json` are served by the container (this is required: the plain-HTTP
+`ota check` needs a non-redirecting host, which GitHub is not).
+
+Minimal manifest the container emits (hash-based update check — `build`/`partSig`
+optional, add later if "N builds behind" / partition-compat precision is wanted):
+
+```json
+{ "file": "https://github.com/Dutch-MeshCore/MeshCore/releases/download/‹tag›/‹env›-‹ver›-‹hash›.bin",
+  "version": "v1.16.0", "hash": "abc1234" }
+```
+
+> **TODO — build the OTA-manifest Docker container.** Cron (every few min) →
+> `GET /repos/Dutch-MeshCore/MeshCore/releases/latest` → for each
+> `*_observer_mqtt-*.bin` asset, parse env/version/hash from the filename and
+> write `/mqtt/v/‹env›.json` → serve over http+https → purge the Cloudflare cache
+> for changed `*.json` (or rely on the short TTL from step 3c). Stateless, no
+> secrets, ~1 small script + a web server (nginx/caddy) in the image.
