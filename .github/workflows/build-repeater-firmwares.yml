@@ -8,7 +8,6 @@ on:
   push:
     tags:
       - 'repeater-*'
-      - '!repeater-mqtt-*'   # MQTT observer builds are handled by build-repeater-mqtt-firmwares.yml
 
 jobs:
 

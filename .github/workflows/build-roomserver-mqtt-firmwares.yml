@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'room-server-mqtt-*'
+      - 'dmc-room-server-mqtt-*'
 
 jobs:
 
