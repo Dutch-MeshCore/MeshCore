@@ -14,9 +14,10 @@ protected:
   int32_t _floor_sample_sum;
   uint8_t _preamble_sf;
   unsigned long last_recv_millis = 0;   // millis() of last good RX (MQTT observer stat)
+  unsigned long last_radio_interrupt_millis = 0;   // millis() of last radio ISR (radio-watchdog)
 
-  void idle();
-  void startRecv();
+  void idle() override;
+  void startRecv() override;
   float packetScoreInt(float snr, int sf, int packet_len);
   virtual bool isReceivingPacket() =0;
   virtual void doResetAGC();
@@ -64,6 +65,7 @@ public:
 
   uint8_t getRadioState() const override;
   unsigned long getLastRecvMillis() const override { return last_recv_millis; }
+  unsigned long getLastRadioInterruptMillis() const override { return last_radio_interrupt_millis; }
 
   virtual float getLastRSSI() const override;
   virtual float getLastSNR() const override;

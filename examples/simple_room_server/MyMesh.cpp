@@ -715,6 +715,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   StrHelper::strncpy(_prefs.mqtt_slot_preset[0], "dutchmeshcore-1", sizeof(_prefs.mqtt_slot_preset[0]));
   StrHelper::strncpy(_prefs.mqtt_slot_preset[1], "dutchmeshcore-2", sizeof(_prefs.mqtt_slot_preset[1]));
   StrHelper::strncpy(_prefs.mqtt_slot_preset[2], "none", sizeof(_prefs.mqtt_slot_preset[2]));
+  _prefs.radio_watchdog_minutes = 5; // 5 minutes default
 
   next_post_idx = 0;
   next_client_idx = 0;

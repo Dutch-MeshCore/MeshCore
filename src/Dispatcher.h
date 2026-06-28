@@ -83,7 +83,12 @@ public:
   // tracked) on the base interface; concrete radios may override.
   virtual uint8_t getRadioState() const { return 0; }
   virtual unsigned long getLastRecvMillis() const { return 0; }
+  virtual unsigned long getLastRadioInterruptMillis() const { return 0; }
   virtual uint32_t getPacketsRecvErrors() const { return 0; }
+
+  // Radio-watchdog recovery hooks (called by Dispatcher when a radio looks stuck).
+  virtual void idle() { }
+  virtual void startRecv() { }
 };
 
 /**
@@ -116,6 +121,7 @@ typedef uint32_t  DispatcherAction;
 #define ERR_EVENT_FULL              (1 << 0)
 #define ERR_EVENT_CAD_TIMEOUT       (1 << 1)
 #define ERR_EVENT_STARTRX_TIMEOUT   (1 << 2)
+#define ERR_EVENT_RADIO_WATCHDOG    (1 << 3)
 
 /**
  * \brief  The low-level task that manages detecting incoming Packets, and the queueing
@@ -127,6 +133,8 @@ class Dispatcher {
   unsigned long next_tx_time;
   unsigned long cad_busy_start;
   unsigned long radio_nonrx_start;
+  unsigned long last_radio_active_ms;    // last successful TX (radio-watchdog activity)
+  unsigned long last_watchdog_recovery;  // last radio-watchdog recovery (rate-limits it)
   unsigned long next_floor_calib_time, next_agc_reset_time;
   bool  prev_isrecv_mode;
   uint32_t n_sent_flood, n_sent_direct;
@@ -154,6 +162,8 @@ protected:
     next_floor_calib_time = next_agc_reset_time = 0;
     _err_flags = 0;
     radio_nonrx_start = 0;
+    last_radio_active_ms = 0;
+    last_watchdog_recovery = 0;
     prev_isrecv_mode = true;
     tx_budget_ms = 0;
     last_budget_update = 0;
@@ -177,6 +187,7 @@ protected:
   virtual bool getCADEnabled() const { return false; }    // hardware CAD disabled by default
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
   virtual unsigned long getDutyCycleWindowMs() const { return 3600000; }
+  virtual uint32_t getRadioWatchdogMillis() const { return 0; }   // 0 = disabled; overridden per role from prefs
 
 public:
   void begin();

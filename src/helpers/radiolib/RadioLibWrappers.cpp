@@ -120,6 +120,7 @@ bool RadioLibWrapper::isInRecvMode() const {
 int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
   int len = 0;
   if (state & STATE_INT_READY) {
+    last_radio_interrupt_millis = millis();   // any ISR event (even CRC errors) -> radio alive
     len = _radio->getPacketLength();
     if (len > 0) {
       if (len > sz) { len = sz; }
