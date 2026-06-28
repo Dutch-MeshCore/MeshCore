@@ -50,6 +50,21 @@ static int getMQTTPresetNameCount() {
   return MQTT_PRESET_COUNT + 2; // built-ins + custom + none
 }
 
+static bool isValidNtpHostname(const char* host) {
+  if (!host || host[0] == '\0') return false;
+  size_t len = strlen(host);
+  if (len > 63) return false;
+  if (host[0] == '.' || host[len - 1] == '.') return false;
+  for (size_t i = 0; i < len; i++) {
+    char c = host[i];
+    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+          (c >= '0' && c <= '9') || c == '.' || c == '-')) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static const char* getMQTTPresetNameByIndex(int index) {
   if (index < MQTT_PRESET_COUNT) return MQTT_PRESETS[index].name;
   if (index == MQTT_PRESET_COUNT) return MQTT_PRESET_CUSTOM;
@@ -689,6 +704,7 @@ void CommonCLI::syncMQTTPrefsToNodePrefs() {
   }
   StrHelper::strncpy(_prefs->mqtt_owner_public_key, _mqtt_prefs.mqtt_owner_public_key, sizeof(_prefs->mqtt_owner_public_key));
   StrHelper::strncpy(_prefs->mqtt_email, _mqtt_prefs.mqtt_email, sizeof(_prefs->mqtt_email));
+  StrHelper::strncpy(_prefs->mqtt_ntp_server, _mqtt_prefs.mqtt_ntp_server, sizeof(_prefs->mqtt_ntp_server));
 }
 
 void CommonCLI::syncNodePrefsToMQTTPrefs() {
@@ -720,6 +736,7 @@ void CommonCLI::syncNodePrefsToMQTTPrefs() {
   }
   StrHelper::strncpy(_mqtt_prefs.mqtt_owner_public_key, _prefs->mqtt_owner_public_key, sizeof(_mqtt_prefs.mqtt_owner_public_key));
   StrHelper::strncpy(_mqtt_prefs.mqtt_email, _prefs->mqtt_email, sizeof(_mqtt_prefs.mqtt_email));
+  StrHelper::strncpy(_mqtt_prefs.mqtt_ntp_server, _prefs->mqtt_ntp_server, sizeof(_mqtt_prefs.mqtt_ntp_server));
 }
 #endif
 
@@ -824,7 +841,65 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
 #else
       strcpy(reply, "ERR: unsupported on this platform");
 #endif
+    } else if (memcmp(command, "ota check", 9) == 0 || memcmp(command, "ota update", 10) == 0) {
+      // Observer pull-OTA: fetch this variant's build from the baked-in manifest
+      // and flash it. Intentionally a separate command from "start ota" (the
+      // manual ElegantOTA web-upload SoftAP) so a remote/online update is never
+      // triggered by someone expecting to hand-upload a binary.
+      //   ota check  -> report available build, do not flash
+      //   ota update -> download and flash, then reboot
+#if defined(WITH_MQTT_BRIDGE) && defined(OTA_MANIFEST_BASE)
+      if (WiFi.status() != WL_CONNECTED) {
+        strcpy(reply, "ERR: WiFi not connected");
+      } else if (memcmp(command, "ota check", 9) == 0) {
+        // Check is synchronous so its result lands in this reply, and runs with the
+        // MQTT bridge UP: the slim per-variant manifest is tiny, so the fetch only
+        // costs a single TLS handshake (no large JSON doc) — which fits alongside
+        // the live MQTT sessions even on no-PSRAM boards. No bridge bounce needed.
+        _board->otaFromManifest(_callbacks->getFirmwareVer(), true, reply);
+      } else {
+        // `ota update`: cheap pre-check first (plain HTTP, bridge stays up). Only
+        // schedule the real update — which tears the bridge down, flashes, and
+        // reboots — when an applicable build actually exists. otaFromManifest(dry)
+        // returns true iff so; otherwise it leaves the explanation (up to date /
+        // cable flash / error) in reply, which we send without disturbing the
+        // bridge or misleading the user with a "Beginning update..." that no-ops.
+        if (_board->otaFromManifest(_callbacks->getFirmwareVer(), true, reply)) {
+          // reply now holds "update available: <cur> -> <target> (N behind|new base)",
+          // where <target> is "vX.Y.Z.B (hash)". Pull <target> out for a friendlier
+          // start message. The "-> " ... trailing " (" framing is produced by
+          // ESP32Board::otaFromManifestImpl; <target> ends at the LAST " (" (the
+          // "(N behind)"/"(new base)" suffix), since the version's own hash-paren
+          // comes before it.
+          char target[48] = {0};
+          const char* arrow = strstr(reply, "-> ");
+          if (arrow) {
+            arrow += 3;
+            const char* suffix = nullptr;
+            for (const char* p = arrow; (p = strstr(p, " (")) != nullptr; p++) suffix = p;
+            size_t len = suffix ? (size_t)(suffix - arrow) : strlen(arrow);
+            if (len >= sizeof(target)) len = sizeof(target) - 1;
+            memcpy(target, arrow, len);
+            target[len] = 0;
+          }
+          // Update is DEFERRED so this ack goes out over the mesh before the flash
+          // blocks the loop and reboots (the app loop runs it shortly).
+          if (_callbacks->beginDeferredOtaUpdate()) {
+            if (target[0]) {
+              snprintf(reply, 160, "Updating to %s; reboots when done (~30s offline). Check 'ver' after.", target);
+            } else {
+              strcpy(reply, "Beginning update... (node will reboot if successful)");
+            }
+          } else {
+            strcpy(reply, "ERR: online OTA not available");
+          }
+        }
+      }
+#else
+      strcpy(reply, "ERR: online OTA not supported on this build");
+#endif
     } else if (memcmp(command, "start ota", 9) == 0) {
+      // Manual OTA: bring up the ElegantOTA SoftAP for a hand-uploaded binary.
       if (!_board->startOTAUpdate(_prefs->node_name, reply)) {
         strcpy(reply, "Error");
       }
@@ -1466,6 +1541,35 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     } else {
       strcpy(reply, "Error: interval must be between 1-60 minutes");
     }
+  } else if (memcmp(config, "mqtt.ntp ", 9) == 0) {
+    const char* host = &config[9];
+    while (*host == ' ') host++;
+    bool clearing = strcmp(host, "none") == 0;
+    if (!clearing && !isValidNtpHostname(host)) {
+      strcpy(reply, "Error: invalid NTP hostname");
+    } else {
+      if (clearing) {
+        _prefs->mqtt_ntp_server[0] = '\0';
+      } else {
+        StrHelper::strncpy(_prefs->mqtt_ntp_server, host, sizeof(_prefs->mqtt_ntp_server));
+      }
+      savePrefs();
+#ifdef ESP_PLATFORM
+      // Validate by running an immediate sync. syncMqttNtp() marshals onto the MQTT
+      // task (Core 0) so no NTP I/O happens on this (Core 1) CLI thread.
+      if (WiFi.status() != WL_CONNECTED) {
+        strcpy(reply, "OK - saved (WiFi not connected; NTP sync pending)");
+      } else if (!_callbacks->isMqttBridgeRunning()) {
+        strcpy(reply, "OK - saved (MQTT bridge not running)");
+      } else if (_callbacks->syncMqttNtp()) {
+        strcpy(reply, "OK - time synced");
+      } else {
+        strcpy(reply, "Error: NTP sync failed");
+      }
+#else
+      strcpy(reply, "OK - saved");
+#endif
+    }
   } else if (memcmp(config, "wifi.ssid ", 10) == 0) {
     StrHelper::strncpy(_prefs->wifi_ssid, &config[10], sizeof(_prefs->wifi_ssid));
     savePrefs();
@@ -2028,6 +2132,22 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
   } else if (memcmp(config, "mqtt.interval", 13) == 0) {
     uint32_t minutes = (_prefs->mqtt_status_interval + 29999) / 60000;
     sprintf(reply, "> %u minutes (%lu ms)", minutes, (unsigned long)_prefs->mqtt_status_interval);
+  } else if (memcmp(config, "mqtt.ntp.diag", 13) == 0 && (config[13] == '\0' || config[13] == ' ')) {
+#ifdef ESP_PLATFORM
+    // Connectivity probe across all configured NTP servers; never updates the clock.
+    // Serial console (sender_timestamp == 0) gets a detailed table; LoRa gets a compact list.
+    if (WiFi.status() != WL_CONNECTED) {
+      strcpy(reply, "Error: WiFi not connected");
+    } else if (!_callbacks->isMqttBridgeRunning()) {
+      strcpy(reply, "Error: MQTT bridge not running");
+    } else if (!_callbacks->runMqttNtpDiag(reply, 160, sender_timestamp == 0)) {
+      strcpy(reply, "Error: NTP diag unavailable");
+    }
+#else
+    strcpy(reply, "Error: not supported on this platform");
+#endif
+  } else if (memcmp(config, "mqtt.ntp", 8) == 0 && (config[8] == '\0' || config[8] == ' ')) {
+    sprintf(reply, "> %s", MQTTBridge::effectiveNtpPrimary(_prefs));
   } else if (config[0] == 'm' && config[1] == 'q' && config[2] == 't' && config[3] == 't' &&
              config[4] >= '1' && config[4] <= ('0' + MAX_MQTT_SLOTS) && config[5] == '.') {
     // Slot-based commands: get mqtt1.preset, get mqtt1.server, etc.

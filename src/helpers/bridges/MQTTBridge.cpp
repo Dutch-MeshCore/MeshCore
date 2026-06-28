@@ -5,7 +5,9 @@
 #include <WiFiUdp.h>
 #include <Timezone.h>
 #include <time.h>
+#include <sys/time.h>
 #include <math.h>
+#include <strings.h>
 
 #ifdef WITH_SNMP
 #include "../SNMPAgent.h"
@@ -31,6 +33,50 @@ static void applyEffectiveOrigin(const NodePrefs* prefs, char* dest, size_t dest
   }
   dest[dest_size - 1] = '\0';
   StrHelper::stripSurroundingQuotes(dest, dest_size);
+}
+
+static const char* const kNtpBuiltinFallbacks[] = {
+  "pool.ntp.org",
+  "time.google.com",
+  "time.cloudflare.com",
+  "time.aws.com",
+  "time.nist.gov",
+};
+static constexpr size_t kNtpBuiltinFallbackCount =
+    sizeof(kNtpBuiltinFallbacks) / sizeof(kNtpBuiltinFallbacks[0]);
+static_assert(MQTTBridge::kMaxNtpServers >= 1 + (int)kNtpBuiltinFallbackCount,
+              "kMaxNtpServers must hold the custom primary plus all built-in fallbacks");
+
+static bool ntpHostnameEquals(const char* a, const char* b) {
+  if (!a || !b) return false;
+  return strcasecmp(a, b) == 0;
+}
+
+static void fillNtpServerList(const NodePrefs* prefs, const char* servers[], int& count) {
+  count = 0;
+  if (prefs && prefs->mqtt_ntp_server[0] != '\0') {
+    servers[count++] = prefs->mqtt_ntp_server;
+  }
+  for (size_t i = 0; i < kNtpBuiltinFallbackCount && count < MQTTBridge::kMaxNtpServers; i++) {
+    const char* fb = kNtpBuiltinFallbacks[i];
+    bool dup = false;
+    for (int j = 0; j < count; j++) {
+      if (ntpHostnameEquals(servers[j], fb)) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) {
+      servers[count++] = fb;
+    }
+  }
+}
+
+const char* MQTTBridge::effectiveNtpPrimary(const NodePrefs* prefs) {
+  if (prefs && prefs->mqtt_ntp_server[0] != '\0') {
+    return prefs->mqtt_ntp_server;
+  }
+  return kNtpBuiltinFallbacks[0];
 }
 
 void MQTTBridge::refreshOriginFromPrefs() {
@@ -342,7 +388,9 @@ MQTTBridge::MQTTBridge(NodePrefs *prefs, mesh::PacketManager *mgr, mesh::RTCCloc
     : BridgeBase(prefs, mgr, rtc),
       _queue_count(0),
       _last_status_publish(0), _last_status_retry(0), _status_interval(300000),
-      _ntp_client(_ntp_udp, "pool.ntp.org", 0, 60000), _last_ntp_sync(0), _ntp_synced(false), _ntp_sync_pending(false), _slots_setup_done(false), _max_active_slots(RUNTIME_MQTT_SLOTS),
+      _ntp_client(_ntp_udp, effectiveNtpPrimary(prefs), 0, 60000), _last_ntp_sync(0), _ntp_synced(false), _ntp_sync_pending(false), _slots_setup_done(false), _max_active_slots(RUNTIME_MQTT_SLOTS),
+      _ntp_force_requested(false), _ntp_force_done(false), _ntp_force_result(false),
+      _ntp_diag_requested(false), _ntp_diag_done(false), _ntp_diag_count(0),
       // Default to UTC; setRules() will be called from syncTimeWithNTP when a
       // non-UTC timezone string is configured. Timezone has no default ctor,
       // so we must pass rules here.
@@ -400,6 +448,16 @@ MQTTBridge::MQTTBridge(NodePrefs *prefs, mesh::PacketManager *mgr, mesh::RTCCloc
     _slots[i].port = 1883;
     _slot_reconfigure_pending[i] = false;
   }
+
+  // Reset CLI-requested forced NTP sync handshake (bridge object is reused across restarts)
+  _ntp_force_requested = false;
+  _ntp_force_done = false;
+  _ntp_force_result = false;
+
+  // Reset CLI-requested NTP diagnostic handshake
+  _ntp_diag_requested = false;
+  _ntp_diag_done = false;
+  _ntp_diag_count = 0;
 
   // Initialize JWT username
   _jwt_username[0] = '\0';
@@ -753,27 +811,44 @@ void MQTTBridge::initializeWiFiInTask() {
   WiFi.setAutoReconnect(true);
   WiFi.setAutoConnect(true);
 
-  // Set up WiFi event handlers for better diagnostics and immediate disconnection detection
-  WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
-    switch(event) {
-      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-        MQTT_DEBUG_PRINTLN("WiFi connected: %s", IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
-        // Set flag to trigger NTP sync from loop() instead of doing it here
-        if (!_ntp_synced && !_ntp_sync_pending) {
-          _ntp_sync_pending = true;
-        }
-        break;
-      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-        s_wifi_disconnect_reason = info.wifi_sta_disconnected.reason;
-        s_wifi_disconnect_time = millis();
-        MQTT_DEBUG_PRINTLN("WiFi disconnected: reason %d", s_wifi_disconnect_reason);
-        break;
-      default:
-        break;
-    }
-  });
+  // Set up WiFi event handlers for better diagnostics and immediate disconnection
+  // detection. Register ONCE — the bridge is reused across restarts (e.g. stopped
+  // for `ota check`/`ota update`, or `set mqtt…` reconfigure) and WiFi.onEvent()
+  // never removes prior callbacks, so re-registering leaks handlers and duplicates
+  // every log line.
+  if (!_wifi_event_registered) {
+    WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
+      switch(event) {
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+          MQTT_DEBUG_PRINTLN("WiFi connected: %s", IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
+          // Set flag to trigger NTP sync from loop() instead of doing it here
+          if (!_ntp_synced && !_ntp_sync_pending) {
+            _ntp_sync_pending = true;
+          }
+          break;
+        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+          s_wifi_disconnect_reason = info.wifi_sta_disconnected.reason;
+          s_wifi_disconnect_time = millis();
+          MQTT_DEBUG_PRINTLN("WiFi disconnected: reason %d", s_wifi_disconnect_reason);
+          break;
+        default:
+          break;
+      }
+    });
+    _wifi_event_registered = true;
+  }
 
-  WiFi.begin(_prefs->wifi_ssid, _prefs->wifi_password);
+  // Only (re)start the WiFi association if it isn't already up. end() leaves the
+  // STA link connected, so on a restart (e.g. after `ota check`) calling
+  // WiFi.begin() again forces a needless disconnect/reconnect — which also races
+  // the MQTT task's first DNS lookup (getaddrinfo fails until WiFi/DNS recovers).
+  // When already connected, the deferred slot setup still fires in mqttTaskLoop()
+  // because _ntp_synced persists across end() (only _slots_setup_done is reset).
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.begin(_prefs->wifi_ssid, _prefs->wifi_password);
+  } else if (!_ntp_synced && !_ntp_sync_pending) {
+    _ntp_sync_pending = true;  // already connected but never synced — kick NTP now
+  }
 
   // NOTE: Slot setup is deferred until after NTP sync in mqttTaskLoop().
   // JWT-auth slots need valid timestamps for token creation, and connecting
@@ -839,6 +914,25 @@ void MQTTBridge::mqttTaskLoop() {
         last_ntp_retry = now;
         syncTimeWithNTP();
       }
+    }
+
+    // Process a CLI-requested forced NTP sync (queued from Core 1). Running it here
+    // keeps all NTP I/O on Core 0; requestForcedNtpSync() blocks the CLI thread until
+    // we publish the outcome below.
+    if (_ntp_force_requested) {
+      _ntp_force_requested = false;
+      // primary_only: validate just the server that was set, so a typo fails fast.
+      bool ok = syncTimeWithNTP(true, /*primary_only=*/true);
+      _ntp_force_result = ok;
+      _ntp_force_done = true;  // set last so the waiter sees a consistent result
+    }
+
+    // Process a CLI-requested NTP connectivity diagnostic (queued from Core 1).
+    // Probe-only — never touches the system clock.
+    if (_ntp_diag_requested) {
+      _ntp_diag_requested = false;
+      runNtpDiagProbe();
+      _ntp_diag_done = true;  // set last so the waiter sees populated results
     }
 
     // Deferred slot setup: wait until NTP is synced so JWT tokens get valid timestamps.
@@ -1045,7 +1139,14 @@ void MQTTBridge::initSlotClients() {
       _slots[index].last_tls_stack_err = error.esp_tls_stack_err;
       _slots[index].last_sock_errno = error.esp_transport_sock_errno;
       _slots[index].last_error_time = millis();
-      if (error.esp_tls_last_esp_err != 0 || error.esp_tls_stack_err != 0 || error.esp_transport_sock_errno != 0) {
+      if (error.error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+        // Broker rejected the MQTT CONNECT itself — not a transport failure.
+        // return code: 1=protocol, 2=client-id rejected, 3=server unavailable,
+        // 4=bad username/password, 5=not authorized. Codes 3/4/5 point at a
+        // server-side lockout or auth problem rather than the network.
+        MQTT_DEBUG_PRINTLN("MQTT%d connection refused by broker (return code=%d)",
+          index + 1, (int)error.connect_return_code);
+      } else if (error.esp_tls_last_esp_err != 0 || error.esp_tls_stack_err != 0 || error.esp_transport_sock_errno != 0) {
         MQTT_DEBUG_PRINTLN("MQTT%d error: tls=%d, tls_stack=%d, sock=%d, type=%d",
           index + 1, error.esp_tls_last_esp_err, error.esp_tls_stack_err,
           error.esp_transport_sock_errno, error.error_type);
@@ -1712,7 +1813,9 @@ void MQTTBridge::publishStatusToSlot(int index) {
 
   // Status timestamp: UTC with explicit +00:00 offset, same as packet/raw JSON
   // `timestamp` (system clock is UTC — SNTP offset 0; prefs Timezone is separate).
-  MQTTMessageBuilder::formatIsoTimestampForMqtt(time(nullptr), _timezone, timestamp, sizeof(timestamp));
+  struct timeval now_tv;
+  gettimeofday(&now_tv, nullptr);
+  MQTTMessageBuilder::formatIsoTimestampForMqtt(now_tv.tv_sec, now_tv.tv_usec, _timezone, timestamp, sizeof(timestamp));
 
   snprintf(radio_info, sizeof(radio_info), "%.6f,%.1f,%d,%d",
            _prefs->freq, _prefs->bw, _prefs->sf, _prefs->cr);
@@ -2423,7 +2526,9 @@ bool MQTTBridge::publishStatus() {
 
   // Status timestamp: UTC with explicit +00:00 offset, same as packet/raw JSON
   // `timestamp` (system clock is UTC — SNTP offset 0; prefs Timezone is separate).
-  MQTTMessageBuilder::formatIsoTimestampForMqtt(time(nullptr), _timezone, timestamp, sizeof(timestamp));
+  struct timeval now_tv;
+  gettimeofday(&now_tv, nullptr);
+  MQTTMessageBuilder::formatIsoTimestampForMqtt(now_tv.tv_sec, now_tv.tv_usec, _timezone, timestamp, sizeof(timestamp));
 
   snprintf(radio_info, sizeof(radio_info), "%.6f,%.1f,%d,%d",
            _prefs->freq, _prefs->bw, _prefs->sf, _prefs->cr);
@@ -2805,52 +2910,70 @@ void MQTTBridge::refreshNTP() {
   // Lightweight periodic refresh: just restart SNTP which runs async in the background.
   // No blocking DNS, no UDP sockets, no retry loops on the MQTT task loop.
   // The heavy syncTimeWithNTP() is only used for initial sync and WiFi reconnect recovery.
-  configTime(0, 0, "pool.ntp.org");
+  configTime(0, 0, effectiveNtpPrimary(_prefs));
   _last_ntp_sync = millis();
   MQTT_DEBUG_PRINTLN("NTP refresh triggered (async SNTP)");
 }
 
-void MQTTBridge::syncTimeWithNTP() {
+bool MQTTBridge::syncTimeWithNTP(bool force, bool primary_only) {
   if (!WiFi.isConnected()) {
     MQTT_DEBUG_PRINTLN("Cannot sync time - WiFi not connected");
-    return;
+    return false;
   }
 
   unsigned long now = millis();
-  if (_ntp_synced && (now - _last_ntp_sync) < 5000) {
-    return;
+  if (!force && _ntp_synced && (now - _last_ntp_sync) < 5000) {
+    return false;
   }
 
   static bool sync_in_progress = false;
   if (sync_in_progress) {
-    return;
+    return false;
   }
   sync_in_progress = true;
 
   MQTT_DEBUG_PRINTLN("Syncing time with NTP...");
 
-  #ifdef ESP_PLATFORM
-  IPAddress resolved_ip;
-  if (!WiFi.hostByName("pool.ntp.org", resolved_ip)) {
-    MQTT_DEBUG_PRINTLN("WARNING: DNS resolution failed for pool.ntp.org - NTP sync may fail");
+  const char* servers[kMaxNtpServers];
+  int server_count = 0;
+  if (primary_only) {
+    // Validation path (e.g. set mqtt.ntp): test only the configured primary so a
+    // typo fails fast instead of walking the entire fallback list.
+    servers[0] = effectiveNtpPrimary(_prefs);
+    server_count = 1;
+  } else {
+    fillNtpServerList(_prefs, servers, server_count);
   }
-  #endif
 
   bool ntp_ok = false;
   unsigned long epochTime = 0;
   const unsigned long kMinValidEpoch = 1767225600;  // 2026-01-01 00:00:00 UTC
+  const char* ntp_server_used = nullptr;
 
   _ntp_client.begin();
-  const int kMaxNtpRetries = 3;
-  for (int attempt = 1; attempt <= kMaxNtpRetries && !ntp_ok; attempt++) {
-    if (attempt > 1) {
-      MQTT_DEBUG_PRINTLN("NTP retry %d/%d...", attempt, kMaxNtpRetries);
-      delay(1000);
+  const int kMaxNtpRetriesPerServer = 2;
+  for (int s = 0; s < server_count && !ntp_ok; s++) {
+    const char* server = servers[s];
+    _ntp_client.setPoolServerName(server);
+
+    #ifdef ESP_PLATFORM
+    IPAddress resolved_ip;
+    if (!WiFi.hostByName(server, resolved_ip)) {
+      MQTT_DEBUG_PRINTLN("WARNING: DNS resolution failed for %s - NTP sync may fail", server);
     }
-    if (_ntp_client.forceUpdate()) {
-      epochTime = _ntp_client.getEpochTime();
-      if (epochTime >= kMinValidEpoch) {
-        ntp_ok = true;
+    #endif
+
+    for (int attempt = 1; attempt <= kMaxNtpRetriesPerServer && !ntp_ok; attempt++) {
+      if (attempt > 1) {
+        MQTT_DEBUG_PRINTLN("NTP retry %d/%d on %s...", attempt, kMaxNtpRetriesPerServer, server);
+        delay(1000);
+      }
+      if (_ntp_client.forceUpdate()) {
+        epochTime = _ntp_client.getEpochTime();
+        if (epochTime >= kMinValidEpoch) {
+          ntp_ok = true;
+          ntp_server_used = server;
+        }
       }
     }
   }
@@ -2860,21 +2983,26 @@ void MQTTBridge::syncTimeWithNTP() {
   #ifdef ESP_PLATFORM
   if (!ntp_ok) {
     MQTT_DEBUG_PRINTLN("NTP client failed, trying SNTP fallback...");
-    configTime(0, 0, "pool.ntp.org");
-    for (int i = 0; i < 20; i++) {
-      delay(500);
-      epochTime = (unsigned long)time(nullptr);
-      if (epochTime >= kMinValidEpoch) {
-        ntp_ok = true;
-        MQTT_DEBUG_PRINTLN("SNTP fallback succeeded: %lu", epochTime);
-        break;
+    for (int s = 0; s < server_count && !ntp_ok; s++) {
+      const char* server = servers[s];
+      MQTT_DEBUG_PRINTLN("SNTP fallback trying %s...", server);
+      configTime(0, 0, server);
+      for (int i = 0; i < 20; i++) {
+        delay(500);
+        epochTime = (unsigned long)time(nullptr);
+        if (epochTime >= kMinValidEpoch) {
+          ntp_ok = true;
+          ntp_server_used = server;
+          MQTT_DEBUG_PRINTLN("SNTP fallback succeeded on %s: %lu", server, epochTime);
+          break;
+        }
       }
     }
   }
   #endif
 
-  if (ntp_ok) {
-    configTime(0, 0, "pool.ntp.org");
+  if (ntp_ok && ntp_server_used) {
+    configTime(0, 0, ntp_server_used);
 
     if (_rtc) {
       _rtc->setCurrentTime(epochTime);
@@ -2885,7 +3013,7 @@ void MQTTBridge::syncTimeWithNTP() {
     _last_ntp_sync = millis();
     sync_in_progress = false;
 
-    MQTT_DEBUG_PRINTLN("Time synced: %lu", epochTime);
+    MQTT_DEBUG_PRINTLN("Time synced: %lu (via %s)", epochTime, ntp_server_used);
 
     // If slots are already set up and the time jumped significantly (e.g., SNTP
     // initially returned stale RTC time, then a later sync corrected it), tear down
@@ -2927,10 +3055,109 @@ void MQTTBridge::syncTimeWithNTP() {
 
     (void)gmtime((time_t*)&epochTime);
     (void)localtime((time_t*)&epochTime);
-  } else {
-    MQTT_DEBUG_PRINTLN("NTP sync failed");
-    sync_in_progress = false;
+    return true;
   }
+
+  MQTT_DEBUG_PRINTLN("NTP sync failed");
+  sync_in_progress = false;
+  return false;
+}
+
+bool MQTTBridge::requestForcedNtpSync(uint32_t timeout_ms) {
+  if (!isRunning()) return false;
+
+  // Publish the request to the MQTT task. Clear the completion flags before
+  // raising _ntp_force_requested so the task can't observe a stale result.
+  _ntp_force_done = false;
+  _ntp_force_result = false;
+  _ntp_force_requested = true;
+
+  unsigned long start = millis();
+  while (!_ntp_force_done) {
+    if (millis() - start >= timeout_ms) {
+      MQTT_DEBUG_PRINTLN("Forced NTP sync timed out waiting for MQTT task");
+      return false;  // task still running; result is ignored when it eventually completes
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+  return _ntp_force_result;
+}
+
+// Runs on the MQTT task (Core 0). Probes every configured NTP server for connectivity
+// and records the time each reports. Deliberately does NOT call configTime() or update
+// the RTC — this is a read-only diagnostic and must leave the system clock untouched.
+void MQTTBridge::runNtpDiagProbe() {
+  const char* servers[kMaxNtpServers];
+  int count = 0;
+  fillNtpServerList(_prefs, servers, count);
+
+  _ntp_client.begin();
+  for (int i = 0; i < count; i++) {
+    _ntp_client.setPoolServerName(servers[i]);
+    bool ok = _ntp_client.forceUpdate();
+    NtpDiagResult& r = _ntp_diag_results[i];
+    strncpy(r.server, servers[i], sizeof(r.server) - 1);
+    r.server[sizeof(r.server) - 1] = '\0';
+    r.ok = ok;
+    r.epoch = ok ? (uint32_t)_ntp_client.getEpochTime() : 0;
+  }
+  _ntp_diag_count = count;
+}
+
+bool MQTTBridge::ntpDiag(char* reply, size_t reply_size, bool verbose) {
+  if (!isRunning() || reply == nullptr || reply_size == 0) return false;
+
+  // Marshal the probe onto the MQTT task (Core 0); clear the completion flag first.
+  _ntp_diag_done = false;
+  _ntp_diag_requested = true;
+
+  unsigned long start = millis();
+  while (!_ntp_diag_done) {
+    if (millis() - start >= 30000) {
+      snprintf(reply, reply_size, "Error: NTP diag timed out");
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+
+  int ok_count = 0;
+  for (int i = 0; i < _ntp_diag_count; i++) {
+    if (_ntp_diag_results[i].ok) ok_count++;
+  }
+
+  if (verbose) {
+    // Detailed table to the serial console; reply carries a short summary (the operator
+    // sees the table above the "-> <reply>" line). Mirrors the dumpLogFile() convention.
+    Serial.printf("NTP diag - %d server(s):\r\n", _ntp_diag_count);
+    for (int i = 0; i < _ntp_diag_count; i++) {
+      const NtpDiagResult& r = _ntp_diag_results[i];
+      if (r.ok) {
+        time_t t = (time_t)r.epoch;
+        struct tm* tmv = gmtime(&t);
+        Serial.printf("  %-20s OK    %04d-%02d-%02d %02d:%02d:%02d UTC\r\n",
+                      r.server, tmv->tm_year + 1900, tmv->tm_mon + 1, tmv->tm_mday,
+                      tmv->tm_hour, tmv->tm_min, tmv->tm_sec);
+      } else {
+        Serial.printf("  %-20s FAIL\r\n", r.server);
+      }
+    }
+    snprintf(reply, reply_size, "> NTP diag: %d/%d OK (see console)", ok_count, _ntp_diag_count);
+  } else {
+    // Compact "<server> ok|fail" list for LoRa, bounded to reply_size.
+    size_t used = 0;
+    reply[0] = '\0';
+    for (int i = 0; i < _ntp_diag_count; i++) {
+      const NtpDiagResult& r = _ntp_diag_results[i];
+      int n = snprintf(reply + used, reply_size - used, "%s%s %s",
+                       used ? "\n" : "", r.server, r.ok ? "ok" : "fail");
+      if (n < 0 || (size_t)n >= reply_size - used) {
+        reply[used] = '\0';  // out of room — truncate cleanly
+        break;
+      }
+      used += (size_t)n;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

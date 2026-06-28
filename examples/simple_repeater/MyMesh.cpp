@@ -1464,6 +1464,23 @@ void MyMesh::loop() {
     MESH_DEBUG_PRINTLN("Radio params restored");
   }
 
+#if defined(WITH_MQTT_BRIDGE) && defined(OTA_MANIFEST_BASE)
+  if (_ota_update_at && millisHasNowPassed(_ota_update_at)) { // deferred `ota update`
+    _ota_update_at = 0;                                       // clear timer
+    // The "Beginning update..." reply has now gone out. Free the bridge for heap
+    // headroom, then flash: otaFromManifest reboots into the new image on success
+    // (so this never returns); on any abort (already up to date, partition change,
+    // download error) it returns and we resume the bridge.
+    Serial.println("OTA: starting update");
+    setBridgeState(false);
+    char ota_reply[160];
+    if (!_cli.getBoard()->otaFromManifest(getFirmwareVer(), false, ota_reply)) {
+      Serial.print("OTA: aborted, resuming bridge - "); Serial.println(ota_reply);
+      setBridgeState(true);
+    }
+  }
+#endif
+
   // is pending dirty contacts write needed?
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
     acl.save(_fs);

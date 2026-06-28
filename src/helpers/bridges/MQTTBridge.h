@@ -56,6 +56,10 @@ class MeshSNMPAgent;  // Forward declaration
  * - Available presets: analyzer-us, analyzer-eu, meshmapper, custom, none
  */
 class MQTTBridge : public BridgeBase {
+public:
+  // Max NTP servers in a try-list: 1 custom primary + the built-in fallbacks.
+  static const int kMaxNtpServers = 6;
+
 private:
   static const size_t AUTH_TOKEN_SIZE = 768;
 
@@ -180,10 +184,40 @@ private:
   bool _ntp_synced;
   bool _ntp_sync_pending;  // Flag to trigger NTP sync from loop() instead of event handler
   bool _slots_setup_done;  // Deferred: slots set up after NTP sync
+  // WiFi.onEvent() handler registered once and never removed by end(); the bridge
+  // object is reused across restarts, so re-registering would leak handlers and
+  // duplicate every connect/disconnect log line. Inline-initialised so it survives
+  // construction and is NOT reset by end().
+  bool _wifi_event_registered = false;
   int _max_active_slots;   // Runtime limit: 5 with PSRAM, 2 without
 
   // Pending slot reconfigure: set from CLI (Core 1), processed by MQTT task (Core 0)
   volatile bool _slot_reconfigure_pending[RUNTIME_MQTT_SLOTS];
+
+  // CLI-requested forced NTP sync, marshalled onto the MQTT task (Core 0).
+  // All NTP I/O (_ntp_client, configTime) must run on Core 0; the CLI thread
+  // (Core 1) sets _ntp_force_requested and blocks in requestForcedNtpSync()
+  // until the task publishes the outcome via _ntp_force_result/_ntp_force_done.
+  // Single-requester assumption: CLI commands are serialized, so at most one
+  // forced sync is outstanding at a time.
+  volatile bool _ntp_force_requested;
+  volatile bool _ntp_force_done;
+  volatile bool _ntp_force_result;
+
+  // CLI-requested NTP connectivity diagnostic, marshalled onto the MQTT task (Core 0)
+  // with the same handshake as the forced sync. Probe-only: it queries each server and
+  // records the reported time but never calls configTime()/setCurrentTime(), so the
+  // system clock is left untouched. Results are written by the task and read by the CLI
+  // thread once _ntp_diag_done is set.
+  volatile bool _ntp_diag_requested;
+  volatile bool _ntp_diag_done;
+  struct NtpDiagResult {
+    char     server[64];
+    bool     ok;
+    uint32_t epoch;  // server-reported UTC epoch when ok
+  };
+  NtpDiagResult _ntp_diag_results[kMaxNtpServers];
+  int _ntp_diag_count;
 
   // Timezone handling.
   // _timezone_storage is inline class storage (zero heap) that is reconfigured
@@ -326,8 +360,8 @@ private:
   void queuePacket(mesh::Packet* packet, bool is_tx);
   void dequeuePacket();
   bool isAnySlotConnected();
-  void syncTimeWithNTP();
   void refreshNTP();  // Lightweight periodic NTP refresh (non-blocking)
+  void runNtpDiagProbe();  // Probe every server for connectivity; never sets the clock. Core 0 only.
   // Populates dst_out/std_out with TimeChangeRules for the given IANA or
   // abbreviation string. Returns false if the string is not recognized
   // (callers should fall back to UTC). Zero-allocation.
@@ -406,6 +440,25 @@ public:
   static int getRuntimeSlotCount() { return RUNTIME_MQTT_SLOTS; }
   /** Resolved origin for MQTT JSON: node_name when mqtt_origin is empty, else mqtt_origin (with quote stripping). */
   static void getEffectiveMqttOrigin(const NodePrefs* prefs, char* buf, size_t buf_size);
+  static const char* effectiveNtpPrimary(const NodePrefs* prefs);
+  /** Sync system clock via NTP. force=true bypasses the 5s post-sync rate limit.
+   *  primary_only=true tests just the effective primary server (no fallback walk) so a
+   *  mistyped hostname fails fast instead of blocking through the whole fallback list.
+   *  Performs blocking NTP I/O and must only be called from the MQTT task (Core 0).
+   *  Other tasks (e.g. the CLI on Core 1) must use requestForcedNtpSync() instead. */
+  bool syncTimeWithNTP(bool force = false, bool primary_only = false);
+  /** Request a forced NTP sync from another task (e.g. CLI on Core 1). Marshals the
+   *  work onto the MQTT task so all NTP I/O stays on Core 0, then blocks up to
+   *  timeout_ms for the result. Returns true if the sync succeeded, false on failure,
+   *  timeout, or if the bridge is not running. */
+  bool requestForcedNtpSync(uint32_t timeout_ms = 30000);
+  /** Probe every configured NTP server (custom primary + built-in fallbacks) for
+   *  connectivity and report each server's reported time WITHOUT touching the system
+   *  clock. Marshals the probe onto the MQTT task (Core 0), then formats on the caller's
+   *  thread. verbose=true prints a detailed table to the serial console and leaves a short
+   *  summary in reply; verbose=false fills reply with a compact "<server> ok|fail" list
+   *  (for LoRa). Returns false if the bridge is not running. */
+  bool ntpDiag(char* reply, size_t reply_size, bool verbose);
   static void formatMqttStatusReply(char* buf, size_t bufsize, const NodePrefs* prefs);
   /** True when WiFi is set and at least one MQTT slot can run (preset + custom host if needed). */
   static bool isConfigValid(const NodePrefs* prefs);

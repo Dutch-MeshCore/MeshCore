@@ -794,6 +794,15 @@ void MyMesh::begin(FILESYSTEM *fs) {
     }
   }
 #endif
+
+  // Wire fault-alert reporter. begin() is safe regardless of bridge state.
+  // Passing `this` as the callbacks lets the reporter resolve a TransportKey
+  // scope (alert.region override, falling back to default_scope) so alert
+  // floods ride the same scope as adverts/channel messages.
+  _alerter.begin(&_prefs, this, this);
+#if defined(WITH_MQTT_BRIDGE)
+  _alerter.setBridge(bridge);
+#endif
 }
 
 void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis, uint8_t path_hash_size) {
@@ -809,9 +818,6 @@ void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint3
 
 bool MyMesh::resolveAlertScope(TransportKey& dest) {
   // Same resolution policy as simple_repeater: alert.region > default_scope.
-  // The room server doesn't currently embed an AlertReporter, but keeping
-  // the override in lockstep means the callback path works the same on both
-  // builds and we won't get caught out if/when it does.
   if (_prefs.alert_region[0]) {
     auto r = region_map.findByNamePrefix(_prefs.alert_region);
     if (r && region_map.getTransportKeysFor(*r, &dest, 1) > 0 && !dest.isNull()) {
@@ -1136,4 +1142,6 @@ void MyMesh::loop() {
   uint32_t now = millis();
   uptime_millis += now - last_millis;
   last_millis = now;
+
+  _alerter.onLoop(now);
 }

@@ -82,6 +82,11 @@ void setup() {
     store.save("_main", the_mesh.self_id);
   }
 
+  // Print the running firmware version at boot so it's visible after an OTA
+  // reboot without having to issue `ver` manually.
+  Serial.print("Firmware: "); Serial.print(FIRMWARE_VERSION);
+  Serial.print(" (built "); Serial.print(FIRMWARE_BUILD_DATE); Serial.println(")");
+
   Serial.print("Repeater ID: ");
   mesh::Utils::printHex(Serial, the_mesh.self_id.pub_key, PUB_KEY_SIZE); Serial.println();
 

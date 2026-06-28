@@ -3,18 +3,26 @@
 #include <cstring>
 #include <math.h>
 #include <time.h>
+#include <sys/time.h>
 #include <Timezone.h>
 #include "MeshCore.h"
 
-void MQTTMessageBuilder::formatIsoTimestampForMqtt(time_t now, Timezone* timezone, char* buffer, size_t buffer_size) {
+void MQTTMessageBuilder::formatIsoTimestampForMqtt(time_t now, long usec, Timezone* timezone, char* buffer, size_t buffer_size) {
   if (!buffer || buffer_size == 0) return;
   // Always emit UTC with an explicit "+00:00" offset, matching Python's
   // datetime.now(timezone.utc).isoformat(). The system clock is UTC (SNTP offset 0),
   // so gmtime() is correct regardless of the prefs Timezone (now unused here).
   (void)timezone;
+  // Clamp the sub-second to a valid microsecond range so the "%06ld" field can never
+  // overflow to 7 digits or go negative on a bad clock read.
+  if (usec < 0) usec = 0;
+  else if (usec > 999999) usec = 999999;
   struct tm* tm_info = gmtime(&now);
-  if (tm_info && strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%S.000000+00:00", tm_info) > 0) {
-    return;
+  if (tm_info) {
+    size_t n = strftime(buffer, buffer_size, "%Y-%m-%dT%H:%M:%S", tm_info);
+    if (n > 0 && snprintf(buffer + n, buffer_size - n, ".%06ld+00:00", usec) > 0) {
+      return;
+    }
   }
   strncpy(buffer, "2024-01-01T12:00:00.000000+00:00", buffer_size - 1);
   buffer[buffer_size - 1] = '\0';
@@ -231,9 +239,13 @@ int MQTTMessageBuilder::buildPacketJSON(
 ) {
   if (!packet) return 0;
   
-  time_t now = time(nullptr);
+  // One wall-clock read: tv_sec feeds both the timestamp and the UTC time/date
+  // fields below (kept consistent), tv_usec is the real sub-second.
+  struct timeval now_tv;
+  gettimeofday(&now_tv, nullptr);
+  time_t now = now_tv.tv_sec;
   char timestamp[40];
-  formatIsoTimestampForMqtt(now, timezone, timestamp, sizeof(timestamp));
+  formatIsoTimestampForMqtt(now, now_tv.tv_usec, timezone, timestamp, sizeof(timestamp));
   
   // Packet time/date: UTC (gmtime), same family as meshcoretomqtt serial fields
   struct tm* utc_timeinfo = gmtime(&now);
@@ -305,9 +317,13 @@ int MQTTMessageBuilder::buildPacketJSONFromRaw(
 ) {
   if (!packet || !raw_data || raw_len <= 0) return 0;
   
-  time_t now = time(nullptr);
+  // One wall-clock read: tv_sec feeds both the timestamp and the UTC time/date
+  // fields below (kept consistent), tv_usec is the real sub-second.
+  struct timeval now_tv;
+  gettimeofday(&now_tv, nullptr);
+  time_t now = now_tv.tv_sec;
   char timestamp[40];
-  formatIsoTimestampForMqtt(now, timezone, timestamp, sizeof(timestamp));
+  formatIsoTimestampForMqtt(now, now_tv.tv_usec, timezone, timestamp, sizeof(timestamp));
   
   struct tm* utc_timeinfo = gmtime(&now);
   
@@ -370,39 +386,19 @@ int MQTTMessageBuilder::buildRawJSON(
   size_t buffer_size
 ) {
   if (!packet) return 0;
-  
-  time_t now = time(nullptr);
+
+  // One wall-clock read: tv_sec for the timestamp, tv_usec for the real sub-second.
+  struct timeval now_tv;
+  gettimeofday(&now_tv, nullptr);
   char timestamp[40];
-  formatIsoTimestampForMqtt(now, timezone, timestamp, sizeof(timestamp));
-  
+  formatIsoTimestampForMqtt(now_tv.tv_sec, now_tv.tv_usec, timezone, timestamp, sizeof(timestamp));
+
   // Convert packet to hex
   // MAX_TRANS_UNIT is 255, so max hex size is 510 chars + null = 511 bytes
   char raw_hex[1024];
   packetToHex(packet, raw_hex, sizeof(raw_hex));
   
   return buildRawMessage(origin, origin_id, timestamp, raw_hex, buffer, buffer_size);
-}
-
-const char* MQTTMessageBuilder::getPacketTypeString(int packet_type) {
-  switch (packet_type) {
-    case 0: return "0";   // REQ
-    case 1: return "1";   // RESPONSE
-    case 2: return "2";   // TXT_MSG
-    case 3: return "3";   // ACK
-    case 4: return "4";   // ADVERT
-    case 5: return "5";   // GRP_TXT
-    case 6: return "6";   // GRP_DATA
-    case 7: return "7";   // ANON_REQ
-    case 8: return "8";   // PATH
-    case 9: return "9";   // TRACE
-    case 10: return "10"; // MULTIPART
-    case 11: return "11"; // Type11
-    case 12: return "12"; // Type12
-    case 13: return "13"; // Type13
-    case 14: return "14"; // Type14
-    case 15: return "15"; // RAW_CUSTOM
-    default: return "0";
-  }
 }
 
 const char* MQTTMessageBuilder::getRouteTypeString(int route_type) {
@@ -414,26 +410,15 @@ const char* MQTTMessageBuilder::getRouteTypeString(int route_type) {
   }
 }
 
-void MQTTMessageBuilder::formatTimestamp(unsigned long timestamp, char* buffer, size_t buffer_size) {
-  // Simplified timestamp formatting - in real implementation would use proper time
-  snprintf(buffer, buffer_size, "2024-01-01T12:00:00.000000");
-}
-
-void MQTTMessageBuilder::formatTime(unsigned long timestamp, char* buffer, size_t buffer_size) {
-  // Simplified time formatting
-  snprintf(buffer, buffer_size, "12:00:00");
-}
-
-void MQTTMessageBuilder::formatDate(unsigned long timestamp, char* buffer, size_t buffer_size) {
-  // Simplified date formatting
-  snprintf(buffer, buffer_size, "01/01/2024");
-}
-
 void MQTTMessageBuilder::bytesToHex(const uint8_t* data, size_t len, char* hex, size_t hex_size) {
   if (hex_size < len * 2 + 1) return;
-  
+
+  // Nibble lookup instead of a per-byte snprintf("%02X"): same uppercase hex
+  // output, but avoids re-parsing the format string up to ~512 times per publish.
+  static const char HEX_DIGITS[] = "0123456789ABCDEF";
   for (size_t i = 0; i < len; i++) {
-    snprintf(hex + i * 2, 3, "%02X", data[i]);
+    hex[i * 2]     = HEX_DIGITS[data[i] >> 4];
+    hex[i * 2 + 1] = HEX_DIGITS[data[i] & 0x0F];
   }
   hex[len * 2] = '\0';
 }

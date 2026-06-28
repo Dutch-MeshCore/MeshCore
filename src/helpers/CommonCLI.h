@@ -127,6 +127,9 @@ struct NodePrefs { // persisted to file
   // time, so the operator can name a region that doesn't exist yet without
   // polluting region_map state. Falls back to default_scope on miss.
   char     alert_region[31];
+
+  // Custom NTP server (MQTT observer); empty = built-in default primary (pool.ntp.org)
+  char mqtt_ntp_server[64];
 };
 
 #ifdef WITH_MQTT_BRIDGE
@@ -204,6 +207,7 @@ struct MQTTPrefs {
 
   // --- Appended fields (added after initial 6-slot migration) ---
   uint8_t mqtt_rx_enabled;       // Enable RX packet uplinking (default: on)
+  char mqtt_ntp_server[64];      // Custom NTP server; empty = pool.ntp.org
 };
 
 // 3-slot MQTTPrefs layout — used for migrating from 3-slot to 6-slot format.
@@ -290,8 +294,30 @@ public:
     restartBridge();
   };
 
+  // Schedule a pull-OTA firmware update to run shortly (from the app loop), after
+  // the "Beginning update..." CLI reply has been transmitted. Deferred because the
+  // flash blocks the loop and then reboots, so it can't run inline with the reply.
+  // Returns true if scheduled. Default: not supported.
+  virtual bool beginDeferredOtaUpdate() {
+    return false;
+  };
+
   virtual int getQueueSize() {
     return 0; // no op by default
+  };
+
+  virtual bool syncMqttNtp() {
+    return false; // WITH_MQTT_BRIDGE builds override
+  };
+
+  virtual bool isMqttBridgeRunning() {
+    return false;
+  };
+
+  // Probe all configured NTP servers for connectivity (verbose=serial console gets a
+  // detailed table; otherwise reply gets a compact "<server> ok|fail" list).
+  virtual bool runMqttNtpDiag(char* reply, size_t reply_size, bool verbose) {
+    return false; // WITH_MQTT_BRIDGE builds override
   };
 
   virtual void setRxBoostedGain(bool enable) {

@@ -726,17 +726,30 @@ void PsychicMqttClient::_onPublish(esp_mqtt_event_handle_t &event)
 void PsychicMqttClient::_onError(esp_mqtt_event_handle_t &event)
 {
     ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
-    if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT)
-    {
-        log_error_if_nonzero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
-        log_error_if_nonzero("reported from tls stack", event->error_handle->esp_tls_stack_err);
-        log_error_if_nonzero("captured as transport's socket errno", event->error_handle->esp_transport_sock_errno);
-        ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
+    esp_mqtt_error_codes_t *err = event->error_handle;
 
-        for (uint8_t i = 0; i < _onErrorUserCallbackCount; ++i)
-        {
-            _onErrorUserCallbacks[i](*event->error_handle);
-        }
+    if (err->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT)
+    {
+        log_error_if_nonzero("reported from esp-tls", err->esp_tls_last_esp_err);
+        log_error_if_nonzero("reported from tls stack", err->esp_tls_stack_err);
+        log_error_if_nonzero("captured as transport's socket errno", err->esp_transport_sock_errno);
+        ESP_LOGI(TAG, "Last errno string (%s)", strerror(err->esp_transport_sock_errno));
+    }
+    else if (err->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED)
+    {
+        // Broker accepted the socket but rejected the MQTT CONNECT. The return
+        // code distinguishes auth failures (4=bad user/pass, 5=not authorized)
+        // from server unavailable (3), protocol mismatch (1), and client-id
+        // rejection (2) — the key signal for diagnosing a server-side lockout.
+        ESP_LOGE(TAG, "Connection refused, return code 0x%x", err->connect_return_code);
+    }
+
+    // Forward every error type to the user callbacks. Previously only transport
+    // errors were forwarded, so CONNACK rejections (CONNECTION_REFUSED) were
+    // silently dropped and never surfaced to the application.
+    for (uint8_t i = 0; i < _onErrorUserCallbackCount; ++i)
+    {
+        _onErrorUserCallbacks[i](*err);
     }
 }
 
