@@ -131,6 +131,7 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
       } else {
       //  Serial.print("  readData() -> "); Serial.println(len);
         n_recv++;
+        last_recv_millis = millis();
       }
     }
     state = STATE_IDLE;   // need another startReceive()
@@ -200,6 +201,8 @@ bool RadioLibWrapper::isChannelActive() {
 
   return false;
 }
+
+uint8_t RadioLibWrapper::getRadioState() const { return state; }   // file-static radio state machine (MQTT observer stat)
 
 float RadioLibWrapper::getLastRSSI() const {
   return _radio->getRSSI();
