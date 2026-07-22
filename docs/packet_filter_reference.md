@@ -322,6 +322,12 @@ The following settings persist across reboots:
 
 # Recommended Configuration
 
+In any case, if you want to block the spammer (July 2026), make sure to use the following, which is included in the busy repeater example, but not in the typical repeater.
+
+```text
+filter rate 02 5 60
+```
+
 ## Typical Public Repeater
 
 ```text
