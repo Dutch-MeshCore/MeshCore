@@ -5,6 +5,11 @@ permissions:
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Firmware version, e.g. v1.16.0 (used as FIRMWARE_VERSION and release name)'
+        required: true
+        type: string
   push:
     tags:
       - 'dmc-room-server-mqtt-*'
@@ -23,7 +28,7 @@ jobs:
 
       - name: Build Firmwares
         env:
-          FIRMWARE_VERSION: ${{ env.GIT_TAG_VERSION }}
+          FIRMWARE_VERSION: ${{ inputs.version || env.GIT_TAG_VERSION }}
           OUT_DIR: .prebuilt
         run: /usr/bin/env bash build.sh build-room-server-mqtt-firmwares
 
@@ -35,9 +40,11 @@ jobs:
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
-          name: Room Server MQTT Firmware ${{ env.GIT_TAG_VERSION }}
+          # On manual dispatch there is no tag ref, so synthesize one from the input version.
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('dmc-room-server-mqtt-{0}', inputs.version) || github.ref_name }}
+          name: Room Server MQTT Firmware ${{ inputs.version || env.GIT_TAG_VERSION }}
           body: ""
           draft: true
           files: .prebuilt/*
