@@ -21,7 +21,7 @@
 #define MQTT_DEFAULT_SLOT2_PRESET "dutchmeshcore-2"   // DMC fork default (was upstream "analyzer-eu")
 #endif
 #ifndef MQTT_DEFAULT_SLOT3_PRESET
-#define MQTT_DEFAULT_SLOT3_PRESET "none"
+#define MQTT_DEFAULT_SLOT3_PRESET "meshcore-analyzer-eu"   // DMC fork default (meshcore-analyzer.eu)
 #endif
 #ifndef MQTT_DEFAULT_SLOT4_PRESET
 #define MQTT_DEFAULT_SLOT4_PRESET "none"

@@ -127,7 +127,7 @@ static const char ISRG_ROOT_X1[] PROGMEM =
     "-----END CERTIFICATE-----\n";
 
 // Number of built-in presets
-static const int MQTT_PRESET_COUNT = 31;
+static const int MQTT_PRESET_COUNT = 32;
 
 // Built-in preset definitions (stored in flash)
 static const MQTTPresetDef MQTT_PRESETS[MQTT_PRESET_COUNT] = {
@@ -154,6 +154,7 @@ static const MQTTPresetDef MQTT_PRESETS[MQTT_PRESET_COUNT] = {
     { "coloradomesh",  "wss://mqtt.meshcore.coloradomesh.org:443","mqtt.meshcore.coloradomesh.org", ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "dutchmeshcore-1", "wss://collector1.dutchmeshcore.nl:443/mqtt", "collector1.dutchmeshcore.nl",     GTS_ROOT_R4,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "dutchmeshcore-2", "wss://collector2.dutchmeshcore.nl:443/mqtt", "collector2.dutchmeshcore.nl",     GTS_ROOT_R4,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "meshcore-analyzer-eu", "wss://mqtt.meshcore-analyzer.eu:443",   "mqtt.meshcore-analyzer.eu",       GTS_ROOT_R4,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshcore-ca-1",   "wss://mqtt1.meshcore.ca:443/mqtt",          "mqtt1.meshcore.ca",               ISRG_ROOT_X1, MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshcore-ca-2",   "wss://mqtt2.meshcore.ca:443/mqtt",          "mqtt2.meshcore.ca",               ISRG_ROOT_X1, MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshcore-fi",     "wss://mc-mqtt.meshcore.fi:443/",            "mc-mqtt.meshcore.fi",             ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },

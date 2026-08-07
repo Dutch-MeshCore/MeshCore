@@ -95,7 +95,7 @@ get mqtt.status
 **That's it!** The device will now:
 - Connect to WiFi automatically
 - Start uplinking mesh packets to configured MQTT brokers
-- By default, publish to the DutchMeshCore presets: `dutchmeshcore-1` in slot 1 and `dutchmeshcore-2` in slot 2
+- By default, publish to the DutchMeshCore presets: `dutchmeshcore-1` in slot 1 and `dutchmeshcore-2` in slot 2, plus `meshcore-analyzer-eu` in slot 3
 - Use device name as MQTT origin (set automatically)
 
 ---
@@ -140,6 +140,7 @@ in the firmware. The **Extra setup** column below lists the exceptions. Presets 
 | `eastidahomesh` | wss://broker.eastidahomesh.net:443 | None | WSS |
 | `dutchmeshcore-1` | wss://collector1.dutchmeshcore.nl:443 | JWT (Ed25519) | WSS |
 | `dutchmeshcore-2` | wss://collector2.dutchmeshcore.nl:443 | JWT (Ed25519) | WSS |
+| `meshcore-analyzer-eu` | wss://mqtt.meshcore-analyzer.eu:443 | JWT (Ed25519) | WSS |
 | `coloradomesh` | wss://mqtt.meshcore.coloradomesh.org:1883 | JWT (Ed25519) | WSS |
 | `dutchmeshcore-1` | collector1.dutchmeshcore.nl:443 | JWT (Ed25519) | WSS |
 | `dutchmeshcore-2` | collector2.dutchmeshcore.nl:443 | JWT (Ed25519) | WSS |
@@ -153,7 +154,8 @@ in the firmware. The **Extra setup** column below lists the exceptions. Presets 
 **Default Configuration:**
 - Slot 1: `dutchmeshcore-1` (DutchMeshCore preset)
 - Slot 2: `dutchmeshcore-2` (DutchMeshCore preset)
-- Slots 3-6: `none`
+- Slot 3: `meshcore-analyzer-eu` (meshcore-analyzer.eu preset)
+- Slots 4-6: `none`
 
 Transport is the URL scheme: `wss://` is WebSocket Secure, `mqtts://` is MQTT over TLS,
 and `mqtt://` is plain unencrypted MQTT. The two TLS schemes are what count against the
@@ -290,7 +292,8 @@ The MQTT bridge comes with the following defaults for fresh installs (unless ove
 - **Status Interval**: 5 minutes (300000 ms)
 - **Slot 1**: `dutchmeshcore-1` (DutchMeshCore preset)
 - **Slot 2**: `dutchmeshcore-2` (DutchMeshCore preset)
-- **Slots 3-6**: `none` (disabled)
+- **Slot 3**: `meshcore-analyzer-eu` (meshcore-analyzer.eu preset)
+- **Slots 4-6**: `none` (disabled)
 - **WiFi SSID**: (blank — must be configured)
 - **WiFi Password**: (blank — optional for open networks)
 - **WiFi Power Save**: `none` (no power save)
@@ -335,6 +338,7 @@ Each slot (1-6) supports the following commands:
 - `set mqttN.preset eastidahomesh` - Set slot N to EastIdahoMesh (WSS/TLS, no auth; packets on `meshcore/{IATA}/{PUBLIC_KEY}/packets`)
 - `set mqttN.preset dutchmeshcore-1` - Set slot N to DutchMeshcore-1
 - `set mqttN.preset dutchmeshcore-2` - Set slot N to DutchMeshcore-2
+- `set mqttN.preset meshcore-analyzer-eu` - Set slot N to MeshCore Analyzer EU (meshcore-analyzer.eu)
 - `set mqttN.preset coloradomesh` - Set slot N to ColoradoMesh
 - `set mqttN.preset inwmesh` - Set slot N to INW Mesh Scope (`mqtts://scope.inwmesh.org:8883`; set `mqttN.username` and `mqttN.password`)
 - `set mqttN.preset custom` - Set slot N to custom broker (configure server/port/username/password)
