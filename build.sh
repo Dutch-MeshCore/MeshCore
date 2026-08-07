@@ -136,7 +136,8 @@ build_firmware() {
     exit 1
   fi
 
-  # set firmware version string
+  # set firmware version string (used for the output filename — left untagged so the
+  # web flasher keys off the env-name pattern, matching the observer branch convention)
   # e.g: v1.0.0-abcdef
   FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION}-${COMMIT_HASH}"
 
@@ -144,8 +145,15 @@ build_firmware() {
   # e.g: RAK_4631_Repeater-v1.0.0-SHA
   FIRMWARE_FILENAME="$1-${FIRMWARE_VERSION_STRING}"
 
+  # DMC fork branding in the *embedded* version so `ver` (and SNMP/stats) identify the
+  # fork: e.g. v1.16.0-dutchmeshcore.nl-abcdef. Placed as a middle tag (before the hash)
+  # so OTA version parsing still works: version = text before the first '-', hash = text
+  # after the last '-'. The filename above is deliberately left untagged.
+  FORK_TAG="-dutchmeshcore.nl"
+  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${FORK_TAG}-${COMMIT_HASH}"
+
   # add firmware version info to end of existing platformio build flags in environment vars
-  export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DFIRMWARE_BUILD_DATE='\"${FIRMWARE_BUILD_DATE}\"' -DFIRMWARE_VERSION='\"${FIRMWARE_VERSION_STRING}\"'"
+  export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DFIRMWARE_BUILD_DATE='\"${FIRMWARE_BUILD_DATE}\"' -DFIRMWARE_VERSION='\"${EMBEDDED_VERSION_STRING}\"'"
 
   # disable debug flags if requested
   disable_debug_flags
