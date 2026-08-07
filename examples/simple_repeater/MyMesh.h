@@ -12,6 +12,7 @@
   #include <LittleFS.h>
 #elif defined(ESP32)
   #include <SPIFFS.h>
+  using File = fs::File;
 #endif
 
 #ifdef WITH_RS232_BRIDGE
@@ -99,8 +100,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   CommonCLI _cli;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   uint8_t reply_path[MAX_PATH_SIZE];
-  int8_t  reply_path_len;
-  uint8_t reply_path_hash_size;
+  uint8_t reply_path_len;
   TransportKeyStore key_store;
   RegionMap region_map, temp_map;
   RegionEntry* load_stack[8];
@@ -222,7 +222,7 @@ protected:
   }
 #endif
 
-  bool filterRecvFloodPacket(mesh::Packet* pkt) override;
+  mesh::DispatcherAction onRecvPacket(mesh::Packet* pkt) override;
 
   void onAnonDataRecv(mesh::Packet* packet, const uint8_t* secret, const mesh::Identity& sender, uint8_t* data, size_t len) override;
   int searchPeersByHash(const uint8_t* hash) override;
@@ -386,7 +386,10 @@ public:
   // To check if there is pending work
   bool hasPendingWork() const;
 
-#if defined(USE_SX1262) || defined(USE_SX1268)
-  void setRxBoostedGain(bool enable) override;
-#endif
+  bool setRxBoostedGain(bool enable) override;
+
+  #if defined(USE_LR2021)
+  virtual bool configSideDetectors(const uint8_t sideDetSFs[], uint8_t num, float bw) override;
+  #endif
+
 };
