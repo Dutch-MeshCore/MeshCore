@@ -7,6 +7,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Timezone.h>
+#include <atomic>
 #include "helpers/JWTHelper.h"
 #include "helpers/MQTTPresets.h"
 
@@ -34,6 +35,10 @@ class MeshSNMPAgent;  // Forward declaration
 #endif
 
 #ifdef WITH_MQTT_BRIDGE
+
+#if defined(BOARD_HAS_PSRAM) && defined(MAX_NEIGHBOURS) && MAX_NEIGHBOURS > 0
+#define WITH_MQTT_NEIGHBORS 1
+#endif
 
 /**
  * @brief Bridge implementation using MQTT protocol for packet transport
@@ -89,6 +94,8 @@ private:
     uint8_t reconnect_backoff;      // 0..4 index into backoff table
     uint8_t max_backoff_failures;   // consecutive failures at max backoff level
     bool circuit_breaker_tripped;   // true = stop reconnecting until reconfigured
+    unsigned long connected_at_ms;  // millis() of last successful connect (0 = not connected);
+                                    // gates the stability-based backoff reset in maintenance
     unsigned long last_reconnect_attempt;
     unsigned long last_log_time;    // Throttle disconnect log messages
     unsigned long last_deferred_log_ms; // Throttle "connect deferred" log spam (Phase 1)
@@ -255,6 +262,19 @@ private:
   // class object so these allocations don't interleave with large TLS buffers at startup.
   static const size_t PUBLISH_JSON_BUFFER_SIZE = 2048;
   static const size_t STATUS_JSON_BUFFER_SIZE = 768;
+  #if defined(WITH_MQTT_NEIGHBORS)
+  char* _neighbors_json_buffer;
+  size_t _neighbors_publish_len;
+  // Release/acquire handoff from the Arduino loop (Core 1) to the MQTT task
+  // (Core 0). A second snapshot is dropped while the current one is publishing.
+  std::atomic<bool> _neighbors_publish_pending;
+  // Written by the MQTT task (Core 0), read by the CLI (Core 1).
+  enum NeighborsResult : uint8_t { NBR_RESULT_NONE, NBR_RESULT_OK, NBR_RESULT_FAIL };
+  std::atomic<uint8_t> _neighbors_last_result;
+  // Written by the mesh loop (Core 1), read by the CLI (Core 1).
+  std::atomic<uint8_t> _neighbors_phase;
+  std::atomic<uint32_t> _neighbors_secs_until_next;
+  #endif
   #if defined(BOARD_HAS_PSRAM)
   char* _publish_json_buffer;
   char* _status_json_buffer;
@@ -316,7 +336,8 @@ private:
   mesh::MillisecondClock* _ms;    // For uptime
 
   // Topic building
-  enum MQTTMessageType { MSG_STATUS, MSG_PACKETS, MSG_RAW };
+  enum MQTTMessageType { MSG_STATUS, MSG_PACKETS, MSG_RAW, MSG_NEIGHBORS };
+  static const char* messageTypeSuffix(MQTTMessageType type);
   bool buildTopicForSlot(int index, MQTTMessageType type, char* topic_buf, size_t buf_size);
   bool substituteTopicTemplate(const char* tmpl, MQTTMessageType type, int slot_index, char* buf, size_t buf_size);
 
@@ -338,6 +359,8 @@ private:
   void maintainSlotConnections();      // Maintain all slot connections (token renewal, reconnect)
   void maintainSlotConnection(int index, unsigned long now_millis, unsigned long current_time, bool time_synced, bool& reconnect_attempted, bool& teardown_attempted);
   bool createSlotAuthToken(int index); // Create/renew JWT token for a slot
+  unsigned long slotTokenLifetime(int index) const; // effective JWT lifetime (preset/default minus slot stagger), seconds
+  static unsigned long tokenRenewalBufferSecs(unsigned long lifetime_secs); // how early to renew+reconnect before exp
   bool publishToSlot(int index, const char* topic, const char* payload, bool retained = false, uint8_t qos = 0);
   bool publishToAllSlots(const char* topic, const char* payload, bool retained = false, uint8_t qos = 0);
   void publishStatusToSlot(int index);
@@ -345,6 +368,9 @@ private:
 
   void processPacketQueue();
   bool publishStatus();  // Returns true if status was successfully published
+  #if defined(WITH_MQTT_NEIGHBORS)
+  bool publishNeighbors();
+  #endif
   bool handleWiFiConnection(unsigned long now);
 
   // FreeRTOS task function (runs on Core 0)
@@ -375,8 +401,12 @@ private:
   void logMemoryStatus();
   void refreshOriginFromPrefs();
 
+  // Observer config (MQTT/WiFi/timezone/SNMP/alert), persisted to /mqtt_prefs.
+  // _prefs (held by BridgeBase) still provides upstream fields (freq/sf/node_name…).
+  MQTTPrefs* _obs = nullptr;
+
 public:
-  MQTTBridge(NodePrefs *prefs, mesh::PacketManager *mgr, mesh::RTCClock *rtc, mesh::LocalIdentity *identity);
+  MQTTBridge(NodePrefs *prefs, MQTTPrefs *obs, mesh::PacketManager *mgr, mesh::RTCClock *rtc, mesh::LocalIdentity *identity);
 
   void begin() override;
   void end() override;
@@ -439,8 +469,8 @@ public:
   const char* getSlotPresetName(int slot_index) const;
   static int getRuntimeSlotCount() { return RUNTIME_MQTT_SLOTS; }
   /** Resolved origin for MQTT JSON: node_name when mqtt_origin is empty, else mqtt_origin (with quote stripping). */
-  static void getEffectiveMqttOrigin(const NodePrefs* prefs, char* buf, size_t buf_size);
-  static const char* effectiveNtpPrimary(const NodePrefs* prefs);
+  static void getEffectiveMqttOrigin(const NodePrefs* np, const MQTTPrefs* obs, char* buf, size_t buf_size);
+  static const char* effectiveNtpPrimary(const MQTTPrefs* obs);
   /** Sync system clock via NTP. force=true bypasses the 5s post-sync rate limit.
    *  primary_only=true tests just the effective primary server (no fallback walk) so a
    *  mistyped hostname fails fast instead of blocking through the whole fallback list.
@@ -459,12 +489,34 @@ public:
    *  summary in reply; verbose=false fills reply with a compact "<server> ok|fail" list
    *  (for LoRa). Returns false if the bridge is not running. */
   bool ntpDiag(char* reply, size_t reply_size, bool verbose);
-  static void formatMqttStatusReply(char* buf, size_t bufsize, const NodePrefs* prefs);
+  static void formatMqttStatusReply(char* buf, size_t bufsize, const MQTTPrefs* obs);
+  /** On-demand publish-health + heap snapshot for `get mqtt.stats` (per-slot ok/err,
+   *  outbox size, free/max heap, queue depth). */
+  static void formatMqttStatsReply(char* buf, size_t bufsize);
   /** True when WiFi is set and at least one MQTT slot can run (preset + custom host if needed). */
-  static bool isConfigValid(const NodePrefs* prefs);
+  static bool isConfigValid(const MQTTPrefs* obs);
   static void formatSlotDiagReply(char* buf, size_t bufsize, int slot_index);
   static uint8_t getLastWifiDisconnectReason();
   static unsigned long getLastWifiDisconnectTime();
+  /** Max slots that can be connected at once on this hardware (each WSS/TLS link
+   *  needs ~40 KB internal heap): 5 with PSRAM, 2 without. Note this is below
+   *  RUNTIME_MQTT_SLOTS, so more slots can be configured than will connect. */
+  static int getMaxActiveSlots();
+
+  #if defined(WITH_MQTT_NEIGHBORS)
+  void requestPublishNeighbors(const char* json, size_t len);
+  static const size_t NEIGHBORS_JSON_BUFFER_SIZE = 10240;
+
+  // Periodic-neighbors schedule, reported by the mesh loop for `get mqtt.status`.
+  // The mesh owns the timer; the bridge only caches the summary, which keeps the
+  // wrap-safe millis math on the one side that already has those helpers.
+  enum NeighborsPhase : uint8_t {
+    NBR_SCHEDULED,  // waiting for the next publish; secs_until_next is valid
+    NBR_ACTIVE,     // zero-hop refresh or scope queries in flight
+    NBR_DUE,        // publish is due, waiting on the bridge/WiFi to come up
+  };
+  void setNeighborsSchedule(NeighborsPhase phase, uint32_t secs_until_next);
+  #endif
   static const char* wifiReasonStr(uint8_t reason);
   static const char* tlsErrorStr(int32_t err);
 

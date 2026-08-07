@@ -258,6 +258,10 @@ float MyMesh::getAirtimeBudgetFactor() const {
   return _prefs.airtime_factor;
 }
 
+bool MyMesh::getCADEnabled() const {
+  return true; // hardware CAD before TX (no CLI toggle on companion; enabled by default)
+}
+
 int MyMesh::getInterferenceThreshold() const {
   return 0; // disabled for now, until currentRSSI() problem is resolved
 }
@@ -969,6 +973,8 @@ void MyMesh::begin(bool has_display) {
   radio_driver.setRxBoostedGainMode(_prefs.rx_boosted_gain);
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
+  // NOTE: no FEM LNA wiring here — companion has its own NodePrefs without
+  // radio_fem_rxgain, matching upstream (which also doesn't wire companion).
 }
 
 const char *MyMesh::getNodeName() {

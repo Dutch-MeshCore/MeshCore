@@ -136,9 +136,24 @@ build_firmware() {
     exit 1
   fi
 
+  # Observer build number: when CI provides FIRMWARE_BUILD_NUMBER (the per-base
+  # published-build counter), it becomes a 4th version component (e.g. .5 ->
+  # v1.16.0.5). Computed up front because it now feeds BOTH the filename and the
+  # embedded version. Local dev builds leave it unset → no 4th component.
+  BUILD_NUMBER_SUFFIX=""
+  if [ -n "$FIRMWARE_BUILD_NUMBER" ]; then
+    BUILD_NUMBER_SUFFIX=".${FIRMWARE_BUILD_NUMBER}"
+  fi
+
   # set firmware version string (used for the output filename)
-  # e.g: v1.0.0-abcdef
-  FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION}-${COMMIT_HASH}"
+  # e.g: v1.0.0-abcdef — or v1.16.0.5-abcdef with a build number. The build
+  # number is now IN the filename so the web flasher's Version dropdown (parsed
+  # from the asset name by the /releases Worker) shows the true published build,
+  # matching the embedded version that `ver` reports. Every filename parser
+  # (flasher gen-slim-manifests ASSET_RE, the /releases Worker VERSION_RE,
+  # flasher.js stale-URL recovery) accepts an optional 4th ".<n>" component
+  # between version and hash.
+  FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION}${BUILD_NUMBER_SUFFIX}-${COMMIT_HASH}"
 
   # craft filename
   # e.g: RAK_4631_Repeater-v1.0.0-SHA

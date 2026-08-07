@@ -23,7 +23,12 @@ protected:
   virtual void doResetAGC();
 
 public:
-  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board), _preamble_sf(0) { n_recv = n_sent = 0; }
+  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board), _preamble_sf(0) {
+    n_recv = n_sent = n_recv_errors = 0;
+    last_recv_millis = 0;
+    last_radio_interrupt_millis = 0;
+    _cad_enabled = false;
+  }
 
   void begin() override;
   virtual void powerOff() { _radio->sleep(); }

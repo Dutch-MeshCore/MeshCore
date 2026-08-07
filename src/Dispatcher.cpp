@@ -63,6 +63,12 @@ uint32_t Dispatcher::getCADFailMaxDuration() const {
   return 4000;   // 4 seconds
 }
 
+#ifdef WITH_MQTT_BRIDGE
+uint32_t Dispatcher::getRadioWatchdogMillis() const {
+  return RADIO_WATCHDOG_MS;
+}
+#endif
+
 void Dispatcher::loop() {
   if (millisHasNowPassed(next_floor_calib_time)) {
     _radio->triggerNoiseFloorCalibrate(getInterferenceThreshold());
@@ -83,10 +89,10 @@ void Dispatcher::loop() {
     _err_flags |= ERR_EVENT_STARTRX_TIMEOUT;
   }
 
-  // Radio watchdog: detect a radio stuck in RX mode but seeing no activity at all.
-  // Composite "last activity" = most recent of any valid RX, any ISR event (even CRC
-  // errors), or any successful TX -- avoids false firings on quiet meshes while still
-  // catching a truly stuck radio (e.g. PSRAM starvation -> missed ISR -> no activity).
+  // Radio watchdog: detect radio stuck in RX mode but not receiving any packets.
+  // Observer-only feature (gated behind WITH_MQTT_BRIDGE); configured via the
+  // MQTTPrefs radio_watchdog_minutes setting.
+#ifdef WITH_MQTT_BRIDGE
   {
     const uint32_t watchdog_ms = getRadioWatchdogMillis();
     if (watchdog_ms > 0) {
@@ -107,6 +113,7 @@ void Dispatcher::loop() {
       }
     }
   }
+#endif // WITH_MQTT_BRIDGE (radio watchdog)
 
   if (outbound) {  // waiting for outbound send to be completed
     if (_radio->isSendComplete()) {

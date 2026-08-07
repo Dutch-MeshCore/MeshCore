@@ -15,10 +15,10 @@
 //   -D MQTT_DEFAULT_TIMEZONE_OFFSET=-5
 
 #ifndef MQTT_DEFAULT_SLOT1_PRESET
-#define MQTT_DEFAULT_SLOT1_PRESET "analyzer-us"
+#define MQTT_DEFAULT_SLOT1_PRESET "dutchmeshcore-1"   // DMC fork default (was upstream "analyzer-us")
 #endif
 #ifndef MQTT_DEFAULT_SLOT2_PRESET
-#define MQTT_DEFAULT_SLOT2_PRESET "analyzer-eu"
+#define MQTT_DEFAULT_SLOT2_PRESET "dutchmeshcore-2"   // DMC fork default (was upstream "analyzer-eu")
 #endif
 #ifndef MQTT_DEFAULT_SLOT3_PRESET
 #define MQTT_DEFAULT_SLOT3_PRESET "none"
@@ -38,11 +38,11 @@
 #endif
 
 #ifndef MQTT_DEFAULT_TIMEZONE
-#define MQTT_DEFAULT_TIMEZONE ""
+#define MQTT_DEFAULT_TIMEZONE "Europe/Amsterdam"   // DMC fork default (was upstream "")
 #endif
 
 #ifndef MQTT_DEFAULT_TIMEZONE_OFFSET
-#define MQTT_DEFAULT_TIMEZONE_OFFSET 0
+#define MQTT_DEFAULT_TIMEZONE_OFFSET 1   // DMC fork default (Amsterdam; was upstream 0)
 #endif
 
 static inline void mqttDefaultSlotPreset(char* dest, size_t dest_size, const char* preset) {
@@ -68,6 +68,8 @@ static inline void applyMQTTDefaults(MQTTPrefs* prefs) {
   prefs->mqtt_tx_enabled = 2;
   prefs->mqtt_rx_enabled = 1;
   prefs->mqtt_status_interval = 300000;
+  prefs->mqtt_neighbors_enabled = 0;
+  prefs->mqtt_neighbors_interval = MQTT_NEIGHBORS_DEFAULT_INTERVAL_MS;
   prefs->wifi_power_save = 1;
 
   mqttDefaultSlotPreset(prefs->mqtt_slot_preset[0], sizeof(prefs->mqtt_slot_preset[0]),
@@ -93,6 +95,13 @@ static inline void applyMQTTDefaults(MQTTPrefs* prefs) {
     prefs->timezone_string[sizeof(prefs->timezone_string) - 1] = '\0';
   }
   prefs->timezone_offset = MQTT_DEFAULT_TIMEZONE_OFFSET;
+
+  // Observer non-MQTT defaults (moved out of NodePrefs/MyMesh ctor in Phase 2).
+  strncpy(prefs->snmp_community, "public", sizeof(prefs->snmp_community) - 1);
+  prefs->radio_watchdog_minutes = 5;
+  prefs->alert_wifi_minutes = 30;
+  prefs->alert_mqtt_minutes = 240;
+  prefs->alert_min_interval_min = 60;
 }
 
 #endif // WITH_MQTT_BRIDGE

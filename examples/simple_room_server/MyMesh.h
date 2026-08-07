@@ -30,6 +30,10 @@
 #define WITH_BRIDGE
 #endif
 
+#ifdef WITH_SNMP
+#include "helpers/SNMPAgent.h"
+#endif
+
 /* ------------------------------ Config -------------------------------- */
 
 #ifndef FIRMWARE_BUILD_DATE
@@ -94,6 +98,13 @@ struct PostInfo {
   char text[MAX_POST_TEXT_LEN+1];
 };
 
+struct NeighbourInfo {
+  mesh::Identity id;
+  uint32_t advert_timestamp;
+  uint32_t heard_timestamp;
+  int8_t snr; // multiplied by 4, user should divide to get float value
+};
+
 class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   FILESYSTEM* _fs;
   uint32_t last_millis;
@@ -118,15 +129,58 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   RegionEntry* recv_pkt_region;
   TransportKey default_scope;
   unsigned long set_radio_at, revert_radio_at;
+  unsigned long _ota_update_at = 0;  // deferred `ota update` fire time (0 = none scheduled)
   float pending_freq;
   float pending_bw;
   uint8_t pending_sf;
   uint8_t pending_cr;
   int  matching_peer_indexes[MAX_CLIENTS];
+#if defined(WITH_MQTT_NEIGHBORS)
+  NeighbourInfo neighbours[MAX_NEIGHBOURS];
+  uint32_t pending_discover_tag;
+  unsigned long pending_discover_until;
+  enum NeighborDiscoverStatus : uint8_t {
+    ND_PENDING = 1,
+    ND_RESPONDED = 2,
+    ND_TIMEOUT = 3,
+    ND_SEND_FAILED = 4,
+  };
+  struct NeighborDiscoverEntry {
+    uint8_t neighbour_idx;
+    uint32_t tag;
+    char scopes[96];
+    uint8_t status;
+  };
+  NeighborDiscoverEntry neighbor_discover[MAX_NEIGHBOURS];
+  uint8_t neighbor_discover_count;
+  bool neighbor_discover_active;
+  bool neighbor_table_refresh_active;
+  bool neighbor_table_refresh_periodic;
+  unsigned long neighbor_discover_until;
+  unsigned long next_neighbors_publish;
+  char self_scopes_buf[96];
+
+  void putNeighbour(const mesh::Identity& id, uint32_t timestamp, float snr);
+  void sendNodeDiscoverReq();
+  bool sendAnonRegionsReq(const mesh::Identity& target, uint32_t& tag);
+  bool neighborDiscoverReady(char* reply);
+  bool startNeighborDiscover(char* reply);
+  void loopNeighborDiscover();
+  void finishNeighborDiscover();
+  bool handleNeighborDiscoverResponse(int overlay_idx, const uint8_t* data, size_t len);
+  void getLocalScopes(char* buf, size_t len);
+  static const int NEIGHBOR_DISCOVER_PEER_BASE = 1000;
+  static const unsigned long NEIGHBOR_DISCOVER_TIMEOUT_MS = 30000;
+#endif
 #ifdef WITH_MQTT_BRIDGE
   MQTTBridge* bridge;
 #endif
+#ifdef WITH_SNMP
+  MeshSNMPAgent _snmp_agent;
+#endif
+#ifdef WITH_MQTT_BRIDGE
   AlertReporter _alerter;
+#endif
 
   void addPost(ClientInfo* client, const char* postData);
   void pushPostToClient(ClientInfo* client, PostInfo& post);
@@ -160,9 +214,11 @@ protected:
   int getAGCResetInterval() const override {
     return ((int)_prefs.agc_reset_interval) * 4000;   // milliseconds
   }
+#ifdef WITH_MQTT_BRIDGE
   uint32_t getRadioWatchdogMillis() const override {
-    return ((uint32_t)_prefs.radio_watchdog_minutes) * 60000UL;
+    return ((uint32_t)_cli.getObserverPrefs()->radio_watchdog_minutes) * 60000UL;
   }
+#endif
   uint8_t getExtraAckTransmitCount() const override {
     return _prefs.multi_acks;
   }
@@ -176,6 +232,10 @@ protected:
   void onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender_idx, const uint8_t* secret, uint8_t* data, size_t len) override;
   bool onPeerPathRecv(mesh::Packet* packet, int sender_idx, const uint8_t* secret, uint8_t* path, uint8_t path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) override;
   void onAckRecv(mesh::Packet* packet, uint32_t ack_crc) override;
+#if defined(WITH_MQTT_NEIGHBORS)
+  void onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len) override;
+  void onControlDataRecv(mesh::Packet* packet) override;
+#endif
 
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
@@ -207,8 +267,10 @@ public:
   // CommonCLICallbacks
   void applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, int timeout_mins) override;
 
+#ifdef WITH_MQTT_BRIDGE
   void onAlertConfigChanged() override { _alerter.onConfigChanged(); }
   bool sendAlertText(const char* text) override { return _alerter.sendText(text); }
+#endif
   bool resolveAlertScope(TransportKey& dest) override;
   bool formatFileSystem() override;
   void sendSelfAdvertisement(int delay_millis, bool flood) override;
@@ -224,11 +286,11 @@ public:
   void dumpLogFile() override;
   void setTxPower(int8_t power_dbm) override;
 
-  void formatNeighborsReply(char *reply) override {
-    strcpy(reply, "not supported");
-  }
+  void formatNeighborsReply(char *reply) override;
+  void removeNeighbor(const uint8_t* pubkey, int key_len) override;
   void formatStatsReply(char *reply) override;
   void formatRadioStatsReply(char *reply) override;
+  void formatRadioDiagReply(char *reply) override;
   void formatPacketStatsReply(char *reply) override;
   void startRegionsLoad() override;
   bool saveRegions() override;
@@ -247,7 +309,7 @@ public:
   void setBridgeState(bool enable) override {
     if (!bridge) {
 #ifdef WITH_MQTT_BRIDGE
-      bridge = new MQTTBridge(&_prefs, _mgr, getRTCClock(), &self_id);
+      bridge = new MQTTBridge(&_prefs, _cli.getObserverPrefs(), _mgr, getRTCClock(), &self_id);
 #endif
       if (!bridge) return;
     }
@@ -263,6 +325,13 @@ public:
       bridge->setBuildDate(getBuildDate());
 #ifdef WITH_MQTT_BRIDGE
       bridge->setStatsSources(this, _radio, _cli.getBoard(), _ms);
+#ifdef WITH_SNMP
+      if (_cli.getObserverPrefs()->snmp_enabled) {
+        _snmp_agent.setNodeName(_prefs.node_name);
+        _snmp_agent.setFirmwareVersion(getFirmwareVer());
+        bridge->setSNMPAgent(&_snmp_agent);
+      }
+#endif
 #endif
       bridge->begin();
 #ifdef WITH_MQTT_BRIDGE
@@ -295,8 +364,21 @@ public:
   }
 
   void restartBridgeSlot(int slot) override {
+#ifdef WITH_MQTT_BRIDGE
     if (!bridge || !bridge->isRunning()) return;
-    bridge->setSlotPreset(slot, _prefs.mqtt_slot_preset[slot]);
+    bridge->setSlotPreset(slot, _cli.getObserverPrefs()->mqtt_slot_preset[slot]);
+#else
+    (void)slot;
+#endif
+  }
+
+  // Schedule the pull-OTA flash to run from loop() in ~2.5 s, leaving time for the
+  // "Beginning update..." CLI reply (CLI_REPLY_DELAY_MILLIS = 600 ms) to transmit
+  // before the flash blocks the loop and reboots.
+  bool beginDeferredOtaUpdate() override {
+    _ota_update_at = millis() + 2500;
+    if (_ota_update_at == 0) _ota_update_at = 1;  // 0 means "none"
+    return true;
   }
 
   int getQueueSize() override {

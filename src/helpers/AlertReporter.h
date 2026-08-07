@@ -49,6 +49,7 @@ const char* alertReporterBannedChannelMatchHex(const char* psk_hex);
  *  - WiFi/MQTT polling is #ifdef WITH_MQTT_BRIDGE-gated; without it, the
  *    reporter still supports manual `alert test` sends.
  */
+#ifdef WITH_MQTT_BRIDGE
 class AlertReporter {
 public:
   AlertReporter();
@@ -59,7 +60,7 @@ public:
    * it to resolve a TransportKey scope for outgoing alert floods (so the
    * packet rides the repeater's default scope or an `alert.region` override).
    */
-  void begin(NodePrefs* prefs, mesh::Mesh* mesh, CommonCLICallbacks* callbacks = nullptr);
+  void begin(NodePrefs* prefs, MQTTPrefs* obs, mesh::Mesh* mesh, CommonCLICallbacks* callbacks = nullptr);
 
 #ifdef WITH_MQTT_BRIDGE
   /** Bridge can be (re)created lazily; pass nullptr to detach. */
@@ -98,6 +99,7 @@ private:
   };
 
   NodePrefs* _prefs;
+  MQTTPrefs* _obs;
   mesh::Mesh* _mesh;
   CommonCLICallbacks* _callbacks;
 #ifdef WITH_MQTT_BRIDGE
@@ -107,3 +109,4 @@ private:
 #endif
   unsigned long _next_check_ms;
 };
+#endif // WITH_MQTT_BRIDGE

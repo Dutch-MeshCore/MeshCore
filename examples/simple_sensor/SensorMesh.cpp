@@ -301,6 +301,10 @@ float SensorMesh::getAirtimeBudgetFactor() const {
   return _prefs.airtime_factor;
 }
 
+bool SensorMesh::getCADEnabled() const {
+  return _prefs.cad_enabled;
+}
+
 bool SensorMesh::allowPacketForward(const mesh::Packet* packet) {
   if (_prefs.disable_fwd) return false;
   if (packet->isRouteFlood() && packet->getPathHashCount() >= _prefs.flood_max) return false;
@@ -729,6 +733,7 @@ SensorMesh::SensorMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::Millise
   _prefs.disable_fwd = true;
   _prefs.flood_max = 64;
   _prefs.interference_threshold = 0;  // disabled
+  _prefs.radio_fem_rxgain = 1;        // LoRa FEM RX gain on by default (FEM boards)
   _prefs.cad_enabled = 0;             // hardware CAD before TX (off by default; 'set cad on')
 
   // GPS defaults
@@ -771,7 +776,7 @@ void SensorMesh::begin(FILESYSTEM* fs) {
 
   radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
   radio_driver.setTxPower(_prefs.tx_power_dbm);
-  board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);
+  board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);   // LoRa FEM LNA (FEM boards only)
 
   updateAdvertTimer();
   updateFloodAdvertTimer();

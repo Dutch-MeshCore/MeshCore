@@ -153,6 +153,29 @@ public:
     size_t buffer_size
   );
 
+  struct NeighborsMessageEntry {
+    const char* pubkey_hex;
+    float snr;
+    uint32_t heard_secs_ago;
+    const char* scopes;
+    const char* status;
+  };
+
+  /**
+   * Build neighbors table JSON for meshcore/{iata}/{device}/neighbors topic.
+   */
+  static int buildNeighborsMessage(
+    JsonDocument& doc,
+    const char* origin,
+    const char* origin_id,
+    const char* timestamp,
+    const char* self_scopes,
+    const NeighborsMessageEntry* neighbors,
+    int neighbor_count,
+    char* buffer,
+    size_t buffer_size
+  );
+
   /**
    * Convert packet to JSON message
    *

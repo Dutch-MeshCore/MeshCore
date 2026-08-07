@@ -123,6 +123,10 @@ typedef uint32_t  DispatcherAction;
 #define ERR_EVENT_STARTRX_TIMEOUT   (1 << 2)
 #define ERR_EVENT_RADIO_WATCHDOG    (1 << 3)
 
+#ifndef RADIO_WATCHDOG_MS
+  #define RADIO_WATCHDOG_MS  300000   // 5 minutes (observer radio-watchdog default)
+#endif
+
 /**
  * \brief  The low-level task that manages detecting incoming Packets, and the queueing
  *      and scheduling of outbound Packets.
@@ -187,7 +191,9 @@ protected:
   virtual bool getCADEnabled() const { return false; }    // hardware CAD disabled by default
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
   virtual unsigned long getDutyCycleWindowMs() const { return 3600000; }
-  virtual uint32_t getRadioWatchdogMillis() const { return 0; }   // 0 = disabled; overridden per role from prefs
+#ifdef WITH_MQTT_BRIDGE
+  virtual uint32_t getRadioWatchdogMillis() const;  // observer-only radio recovery
+#endif
 
 public:
   void begin();

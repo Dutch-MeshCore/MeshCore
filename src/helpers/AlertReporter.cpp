@@ -26,8 +26,9 @@
 #define ALERT_DEBUG_PRINTLN(...) do {} while (0)
 #endif
 
+#ifdef WITH_MQTT_BRIDGE
 AlertReporter::AlertReporter()
-    : _prefs(nullptr), _mesh(nullptr), _callbacks(nullptr),
+    : _prefs(nullptr), _obs(nullptr), _mesh(nullptr), _callbacks(nullptr),
 #ifdef WITH_MQTT_BRIDGE
       _bridge(nullptr),
 #endif
@@ -38,18 +39,18 @@ AlertReporter::AlertReporter()
 #endif
 }
 
-void AlertReporter::begin(NodePrefs* prefs, mesh::Mesh* mesh, CommonCLICallbacks* callbacks) {
+void AlertReporter::begin(NodePrefs* prefs, MQTTPrefs* obs, mesh::Mesh* mesh, CommonCLICallbacks* callbacks) {
   _prefs = prefs;
+  _obs = obs;
   _mesh = mesh;
   _callbacks = callbacks;
   onConfigChanged();
 }
 
-#ifdef WITH_MQTT_BRIDGE
 void AlertReporter::setBridge(MQTTBridge* bridge) {
   _bridge = bridge;
 }
-#endif
+#endif // WITH_MQTT_BRIDGE (AlertReporter methods, part 1)
 
 // Channels banned as fault-alert destinations. Fault alerts are noisy
 // operator-infrastructure messages; routing them to community channels would
@@ -97,6 +98,7 @@ const char* alertReporterBannedChannelMatchHex(const char* psk_hex) {
   return alertReporterBannedChannelMatch(secret);
 }
 
+#ifdef WITH_MQTT_BRIDGE
 bool AlertReporter::resolveChannel(mesh::GroupChannel& out) const {
   if (!_prefs) return false;
 
@@ -105,7 +107,7 @@ bool AlertReporter::resolveChannel(mesh::GroupChannel& out) const {
   // Only 16-byte secrets (32 hex chars) are supported; 32-byte channel keys
   // are not used anywhere in MeshCore practice and not represented in the
   // banned table either.
-  const char* psk = _prefs->alert_psk_hex;
+  const char* psk = _obs->alert_psk_hex;
   if (strlen(psk) != 32) return false;
 
   memset(out.secret, 0, sizeof(out.secret));
@@ -204,7 +206,7 @@ void AlertReporter::formatAge(unsigned long age_ms, char* out, size_t out_size) 
 }
 
 void AlertReporter::onLoop(unsigned long now_ms) {
-  if (!_prefs || !_prefs->alert_enabled) return;
+  if (!_prefs || !_obs || !_obs->alert_enabled) return;
   if (!_mesh) return;
 
   // Throttle: ~5 s cadence. The thresholds are minutes-scale so this is fine.
@@ -216,21 +218,27 @@ void AlertReporter::onLoop(unsigned long now_ms) {
   // already enforces this on set, but a stale prefs file or future field
   // tweak shouldn't be able to drag the floor below 1 hour and let a
   // flapping link spam the mesh.
-  uint16_t cfg_min = _prefs->alert_min_interval_min;
+  //
+  // The rate limiter only applies between two real sends: fired_at_ms == 0
+  // means "never fired since boot/config change", and treating it as a send
+  // at millis()==0 would suppress every first alert until uptime reaches
+  // min_interval (observed as a 30-minute alert.mqtt threshold not reporting
+  // until 60 minutes after a reboot).
+  uint16_t cfg_min = _obs->alert_min_interval_min;
   if (cfg_min < 60) cfg_min = 60;
   unsigned long min_interval_ms = (unsigned long)cfg_min * 60000UL;
 
   // -------- WiFi fault --------
-  if (_prefs->alert_wifi_minutes > 0) {
+  if (_obs->alert_wifi_minutes > 0) {
     unsigned long wifi_disc_ms = MQTTBridge::getLastWifiDisconnectTime();
     unsigned long wifi_conn_ms = MQTTBridge::getWifiConnectedAtMillis();
     bool wifi_down = (wifi_disc_ms != 0 && wifi_conn_ms == 0);
     unsigned long down_ms = wifi_down ? (now_ms - wifi_disc_ms) : 0;
-    unsigned long thresh_ms = (unsigned long)_prefs->alert_wifi_minutes * 60000UL;
+    unsigned long thresh_ms = (unsigned long)_obs->alert_wifi_minutes * 60000UL;
 
     if (_wifi.state == OK) {
       if (wifi_down && down_ms >= thresh_ms &&
-          (now_ms - _wifi.fired_at_ms) >= min_interval_ms) {
+          (_wifi.fired_at_ms == 0 || (now_ms - _wifi.fired_at_ms) >= min_interval_ms)) {
         char age[16];
         formatAge(down_ms, age, sizeof(age));
         uint8_t reason = MQTTBridge::getLastWifiDisconnectReason();
@@ -263,10 +271,10 @@ void AlertReporter::onLoop(unsigned long now_ms) {
   }
 
   // -------- MQTT slot faults --------
-  if (_prefs->alert_mqtt_minutes > 0 && _bridge != nullptr) {
+  if (_obs->alert_mqtt_minutes > 0 && _bridge != nullptr) {
     int n = MQTTBridge::getRuntimeSlotCount();
     if (n > (int)(sizeof(_mqtt) / sizeof(_mqtt[0]))) n = (int)(sizeof(_mqtt) / sizeof(_mqtt[0]));
-    unsigned long thresh_ms = (unsigned long)_prefs->alert_mqtt_minutes * 60000UL;
+    unsigned long thresh_ms = (unsigned long)_obs->alert_mqtt_minutes * 60000UL;
 
     for (int i = 0; i < n; i++) {
       Fault& f = _mqtt[i];
@@ -280,7 +288,7 @@ void AlertReporter::onLoop(unsigned long now_ms) {
 
       if (f.state == OK) {
         if (down && down_ms >= thresh_ms &&
-            (now_ms - f.fired_at_ms) >= min_interval_ms) {
+            (f.fired_at_ms == 0 || (now_ms - f.fired_at_ms) >= min_interval_ms)) {
           char age[16];
           formatAge(down_ms, age, sizeof(age));
           char text[100];
@@ -311,3 +319,4 @@ void AlertReporter::onLoop(unsigned long now_ms) {
   (void)now_ms;
 #endif
 }
+#endif // WITH_MQTT_BRIDGE (AlertReporter methods, part 2)

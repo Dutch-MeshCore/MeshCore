@@ -23,7 +23,7 @@ enum MQTTAuthType : uint8_t {
 
 enum MQTTTopicStyle : uint8_t {
   MQTT_TOPIC_MESHCORE,   // meshcore/{iata}/{device_id}/{status|packets|raw}
-  MQTT_TOPIC_MESHRANK,   // meshrank/uplink/{token}/{device_id}/packets (packets only)
+  MQTT_TOPIC_MESHRANK,   // meshrank/uplink/{token}/{device_id}/{status|packets|raw|neighbors}
 };
 
 struct MQTTPresetDef {
@@ -40,10 +40,32 @@ struct MQTTPresetDef {
   const char* userpass_password; // MQTT_AUTH_USERPASS: embedded password, or nullptr to use mqttN.password
 };
 
-// True when preset uses MQTT_AUTH_USERPASS but credentials come from slot prefs (mqttN.username/password).
-static inline bool mqttPresetNeedsSlotCredentials(const MQTTPresetDef* preset) {
+// Sentinel: resolve MQTT username from device public-key hex at connect time.
+// Braces match topic placeholders ({device}/{iata}); never send this string to the broker.
+static const char MQTT_USERPASS_USERNAME_PUBKEY[] = "{pubkey}";
+
+static inline bool mqttPresetUsesDevicePubkeyUsername(const MQTTPresetDef* preset) {
   return preset && preset->auth_type == MQTT_AUTH_USERPASS &&
-         (!preset->userpass_username || !preset->userpass_password);
+         preset->userpass_username &&
+         strcmp(preset->userpass_username, MQTT_USERPASS_USERNAME_PUBKEY) == 0;
+}
+
+// True when USERPASS username must come from mqttN.username (null embedded username).
+// "{pubkey}" is an embedded sentinel, so it does not need a slot username.
+static inline bool mqttPresetNeedsSlotUsername(const MQTTPresetDef* preset) {
+  return preset && preset->auth_type == MQTT_AUTH_USERPASS &&
+         !preset->userpass_username;
+}
+
+// True when USERPASS password must come from mqttN.password (null embedded password).
+static inline bool mqttPresetNeedsSlotPassword(const MQTTPresetDef* preset) {
+  return preset && preset->auth_type == MQTT_AUTH_USERPASS &&
+         !preset->userpass_password;
+}
+
+// True when preset uses MQTT_AUTH_USERPASS but at least one credential comes from slot prefs.
+static inline bool mqttPresetNeedsSlotCredentials(const MQTTPresetDef* preset) {
+  return mqttPresetNeedsSlotUsername(preset) || mqttPresetNeedsSlotPassword(preset);
 }
 
 // Google Trust Services - GTS Root R4 (used by LetsMesh Analyzer)
@@ -105,7 +127,7 @@ static const char ISRG_ROOT_X1[] PROGMEM =
     "-----END CERTIFICATE-----\n";
 
 // Number of built-in presets
-static const int MQTT_PRESET_COUNT = 25;
+static const int MQTT_PRESET_COUNT = 31;
 
 // Built-in preset definitions (stored in flash)
 static const MQTTPresetDef MQTT_PRESETS[MQTT_PRESET_COUNT] = {
@@ -115,6 +137,11 @@ static const MQTTPresetDef MQTT_PRESETS[MQTT_PRESET_COUNT] = {
     { "nz-analyzer",   "wss://meshcore-mqtt-1.baird.io:443",      "meshcore-mqtt-1.baird.io",        GTS_ROOT_R4,   MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshmapper",    "wss://mqtt.meshmapper.net:443/mqtt",       "mqtt.meshmapper.net",              ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshrank",      "mqtts://meshrank.net:8883",               nullptr,                           ISRG_ROOT_X1,  MQTT_AUTH_NONE,     MQTT_TOPIC_MESHRANK,  0,       false,  0,       nullptr,     nullptr     },
+    // waev token_lifetime is 3300 (55 min) on purpose: the broker's real JWT TTL is
+    // 60 min, and claiming less keeps fresh tokens accepted even with ~5 min of fast
+    // device-clock skew (and off any exp-iat<=3600 boundary strictness). Do NOT
+    // "fix" this to 3600 — the renewal race is handled separately by
+    // tokenRenewalBufferSecs() in MQTTBridge, which renews another 5 min earlier.
     { "waev",          "wss://mqtt.waev.app:443/mqtt",            "mqtt.waev.app",                   GTS_ROOT_R4,   MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE, 3300,     false,  55,      nullptr,     nullptr     },
     { "meshomatic",    "wss://us-east.meshomatic.net:443/mqtt",   "us-east.meshomatic.net",          ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "cascadiamesh",  "wss://mqtt-v1.cascadiamesh.org:443/mqtt", "mqtt-v1.cascadiamesh.org",        ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
@@ -123,18 +150,26 @@ static const MQTTPresetDef MQTT_PRESETS[MQTT_PRESET_COUNT] = {
     { "ctmesh",        "mqtt://mqtt.ctmesh.org:1883",             nullptr,                           nullptr,       MQTT_AUTH_USERPASS,  MQTT_TOPIC_MESHCORE,  0,       true,   60,      "meshdev",    "large4cats"},
     { "chimesh",       "wss://mqtt.chimesh.org:443",              "mqtt.chimesh.org",                ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshat.se",     "wss://meshcore-mqtt.meshat.se:443",       "meshcore-mqtt.meshat.se",         ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
-    { "eastidahomesh", "wss://broker.eastidahomesh.net:443",      nullptr,                           ISRG_ROOT_X1,  MQTT_AUTH_NONE,     MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
-    { "coloradomesh",  "wss://mqtt.meshcore.coloradomesh.org:1883","mqtt.meshcore.coloradomesh.org", ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "eastidahomesh", "mqtt://live.eastidahomesh.com:1883",      nullptr,                           nullptr,       MQTT_AUTH_NONE,     MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "coloradomesh",  "wss://mqtt.meshcore.coloradomesh.org:443","mqtt.meshcore.coloradomesh.org", ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "dutchmeshcore-1", "wss://collector1.dutchmeshcore.nl:443/mqtt", "collector1.dutchmeshcore.nl",     GTS_ROOT_R4,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "dutchmeshcore-2", "wss://collector2.dutchmeshcore.nl:443/mqtt", "collector2.dutchmeshcore.nl",     GTS_ROOT_R4,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshcore-ca-1",   "wss://mqtt1.meshcore.ca:443/mqtt",          "mqtt1.meshcore.ca",               ISRG_ROOT_X1, MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshcore-ca-2",   "wss://mqtt2.meshcore.ca:443/mqtt",          "mqtt2.meshcore.ca",               ISRG_ROOT_X1, MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "meshcore-fi",     "wss://mc-mqtt.meshcore.fi:443/",            "mc-mqtt.meshcore.fi",             ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "okimesh-1",     "wss://mqtt1.okimesh.org:9002/mqtt",       "mqtt1.okimesh.org",               ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "okimesh-2",     "wss://mqtt2.okimesh.org:9002/mqtt",       "mqtt2.okimesh.org",               ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "inwmesh",         "mqtts://scope.inwmesh.org:8883",            nullptr,                           ISRG_ROOT_X1,  MQTT_AUTH_USERPASS,  MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "bostonmesh",      "wss://mqttmc01.bostonme.sh:443/mqtt",       "mqttmc01.bostonme.sh",            GTS_ROOT_R4,   MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "rflab",           "wss://mqtt.rflab.io:443",                   "mqtt.rflab.io",                   ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "ipnt.uk",         "wss://mqtt.ipnt.uk:443",                    "mqtt.ipnt.uk",                    ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "flmesh",       "wss://mcmqtt.jntconnections.com:443",       "mcmqtt.jntconnections.com",       GTS_ROOT_R4,   MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "corecomms",     "wss://mqtt.corecomms.net:443/mqtt",       "mqtt.corecomms.net",              GTS_ROOT_R4,   MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "meshtexas",     "wss://mqtt.meshtexas.org:443/mqtt",       "mqtt.meshtexas.org",              GTS_ROOT_R4,   MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    // Username is device pubkey hex at connect; password from mqttN.password. No TLS.
+    { "mesh-chaun14",  "mqtt://mqtt.mesh.chaun14.fr:1884",        nullptr,                           nullptr,       MQTT_AUTH_USERPASS,  MQTT_TOPIC_MESHCORE,  0,       true,   60,      MQTT_USERPASS_USERNAME_PUBKEY, nullptr },
+    // LetsMesh-compatible JWT; TLS is Let's Encrypt (ISRG Root X1), not GTS.
+    { "wcmesh",        "wss://mqtt.wcmesh.com:443",               "mqtt.wcmesh.com",                 ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
 };
 
 // Find a preset by name, returns nullptr if not found
