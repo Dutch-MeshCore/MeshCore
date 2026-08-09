@@ -1,0 +1,23 @@
+name: Build DMC Room Server Firmwares
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'dmc-room-server-*'
+      # Exclude the observer MQTT room-server tags (they have their own
+      # workflow). 'dmc-room-server-*' otherwise also matches
+      # 'dmc-room-server-mqtt-*'.
+      - '!dmc-room-server-mqtt-*'
+
+jobs:
+  build:
+    # Build every room-server board via the shared matrix builder. Draft
+    # release on tag push.
+    uses: ./.github/workflows/firmware-builder.yml
+    with:
+      firmware_type: 'room-server'
+      release_title_prefix: 'DMC Room Server Firmware'
