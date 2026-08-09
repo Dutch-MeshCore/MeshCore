@@ -37,11 +37,11 @@
 /* ------------------------------ Config -------------------------------- */
 
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "18 Jun 2026"
+  #define FIRMWARE_BUILD_DATE   "9 Aug 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "DutchMeshcore.nl - v1.16.0-mqtt"
+  #define FIRMWARE_VERSION   "v1.17.0"
 #endif
 
 #ifndef LORA_FREQ
