@@ -5,11 +5,18 @@ permissions:
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      # Trigger only — the embedded version comes from FIRMWARE_VERSION below,
+      # NOT from the tag. Push e.g. `observer-mqtt-v1.17.0` to kick a rolling
+      # build from this branch (the Run-workflow button lives on the default
+      # branch; a tag push works regardless of which branch the file is on).
+      - 'observer-mqtt-*'
 
 env:
   # Version embedded in firmware filenames; must match the version key in the
   # flasher's config.json. Bump here when the observer version changes.
-  FIRMWARE_VERSION: v1.16.0
+  FIRMWARE_VERSION: v1.17.0
   # Rolling release tag that hosts the latest observer binaries.
   RELEASE_TAG: observer-mqtt-latest
 
