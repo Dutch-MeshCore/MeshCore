@@ -1,13 +1,13 @@
-# MeshCore MQTT Observer — Neighbour Discovery
+# MeshCore MQTT Observer - Neighbour Discovery
 
 ## Overview
 
-Neighbour discovery lets an observer publish its **zero-hop repeater neighbours** — each with signal quality, last-heard age, and the region scopes it floods to — to the MQTT `neighbors` topic, so a collector can map the local mesh topology.
+Neighbour discovery lets an observer publish its **zero-hop repeater neighbours** - each with signal quality, last-heard age, and the region scopes it floods to - to the MQTT `neighbors` topic, so a collector can map the local mesh topology.
 
 Discovery has two triggers:
 
-* **Manual, one-shot** — `discover.scopes`
-* **Periodic** — `set mqtt.neighbors on`, repeating on a configurable interval
+* **Manual, one-shot** - `discover.scopes`
+* **Periodic** - `set mqtt.neighbors on`, repeating on a configurable interval
 
 Both do the same two-phase work: refresh the zero-hop neighbour table, then query each neighbour for its region scopes, then publish the assembled table once.
 
@@ -44,7 +44,7 @@ discover.scopes
 Refreshes the zero-hop table, queries each neighbour for its region scopes, and publishes the assembled table to the MQTT `neighbors` topic **once**.
 
 * If the cache is current, the scope queries run immediately in one shot.
-* If a `discover.neighbors` refresh is already collecting responses — whether started from the CLI or by the periodic timer — the scope queries are **queued behind its 60-second window** so they run against the refreshed table. The reply reports the wait, e.g.:
+* If a `discover.neighbors` refresh is already collecting responses - whether started from the CLI or by the periodic timer - the scope queries are **queued behind its 60-second window** so they run against the refreshed table. The reply reports the wait, e.g.:
 
 ```text
 OK - scopes queued (47s discovery remaining)
@@ -67,7 +67,7 @@ set mqtt.neighbors <on|off>
 
 **Default:** `off`.
 
-When enabled, each cycle first runs a 60-second zero-hop refresh (equivalent to `discover.neighbors`), then queries the refreshed table for scopes and publishes when the scope-query phase completes. The setting is read live by the mesh loop — no restart is required, and enabling it triggers a discovery on the next pass.
+When enabled, each cycle first runs a 60-second zero-hop refresh (equivalent to `discover.neighbors`), then queries the refreshed table for scopes and publishes when the scope-query phase completes. The setting is read live by the mesh loop - no restart is required, and enabling it triggers a discovery on the next pass.
 
 Set how often the table is published:
 
@@ -76,7 +76,7 @@ get mqtt.neighbors.interval
 set mqtt.neighbors.interval <hours>
 ```
 
-**Allowed values:** `12`–`336` hours. Out-of-range values are **rejected, not clamped**.
+**Allowed values:** `12`-`336` hours. Out-of-range values are **rejected, not clamped**.
 
 **Default:** `24` (hours).
 
@@ -130,12 +130,12 @@ The table is published to **every configured slot's** `neighbors` topic at QoS 0
 
 Field notes:
 
-* `total_neighbors` — size of the neighbour-table snapshot the cycle started from.
-* `queried_neighbors` — how many scope requests were confirmed transmitted.
-* `truncated` — whether the 10 KB publish buffer filled before every entry fit. All three fields are always present, so the `neighbors` array can be **shorter** than `total_neighbors`; compare its length against that field rather than assuming the table is complete.
+* `total_neighbors` - size of the neighbour-table snapshot the cycle started from.
+* `queried_neighbors` - how many scope requests were confirmed transmitted.
+* `truncated` - whether the 10 KB publish buffer filled before every entry fit. All three fields are always present, so the `neighbors` array can be **shorter** than `total_neighbors`; compare its length against that field rather than assuming the table is complete.
 * Entries are ordered most- to least-useful (usable age first, then most recently heard, then stronger SNR); the tail is dropped if the payload would exceed the buffer.
 * `status` is `responded`, `timeout`, or `send_failed` per neighbour.
-* `heard_secs_ago` is `null` when the age cannot be computed (the neighbour was last heard before the clock was set, so the stored stamp and current clock are from different epochs). **Consumers must treat `null` as unknown, not as zero** — the key is always present, so a missing key means older firmware, and a `null` never means "heard just now". A neighbour that answers the scope query has its stamp refreshed, so a `null` age normally clears itself on the next cycle.
+* `heard_secs_ago` is `null` when the age cannot be computed (the neighbour was last heard before the clock was set, so the stored stamp and current clock are from different epochs). **Consumers must treat `null` as unknown, not as zero** - the key is always present, so a missing key means older firmware, and a `null` never means "heard just now". A neighbour that answers the scope query has its stamp refreshed, so a `null` age normally clears itself on the next cycle.
 * `self.default_scope` is the region this node floods to by default (`region default`); it is `*` when no default region is set, matching the unscoped flood the radio performs in that case.
 
 ---
@@ -152,9 +152,9 @@ Field notes:
 
 # Important Notes
 
-* Neighbour discovery is an **observer** feature, gated on the build — check `get mqtt.neighbors` before relying on it.
+* Neighbour discovery is an **observer** feature, gated on the build - check `get mqtt.neighbors` before relying on it.
 * `discover.neighbors` only refreshes the local zero-hop table; `discover.scopes` refreshes **and publishes** once.
-* Periodic publishing defaults to `off`; enable it with `set mqtt.neighbors on` and tune the cadence with `set mqtt.neighbors.interval <12–336>`.
+* Periodic publishing defaults to `off`; enable it with `set mqtt.neighbors on` and tune the cadence with `set mqtt.neighbors.interval <12-336>`.
 * The table is published to every configured broker slot's `neighbors` topic.
 * Always compare `neighbors.length` against `total_neighbors`, and treat `heard_secs_ago: null` as *unknown*.
 * Non-PSRAM builds cap the pass at 20 neighbours and flag it with `truncated`.
