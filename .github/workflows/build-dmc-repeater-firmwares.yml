@@ -1,0 +1,22 @@
+name: Build DMC Repeater Firmwares
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'dmc-repeater-*'
+      # Exclude the observer MQTT repeater tags (they have their own workflow).
+      # 'dmc-repeater-*' otherwise also matches 'dmc-repeater-mqtt-*'.
+      - '!dmc-repeater-mqtt-*'
+
+jobs:
+  build:
+    # Build every repeater board via the shared matrix builder (was a temporary
+    # curated subset; DMC now ships the full set). Draft release on tag push.
+    uses: ./.github/workflows/firmware-builder.yml
+    with:
+      firmware_type: 'repeater'
+      release_title_prefix: 'DMC Repeater Firmware'

@@ -497,7 +497,9 @@ bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
       return false;
     }
   }
-  return true;
+
+  // additional filtering
+  return _filter.allowPacketForward(packet);
 }
 
 const char *MyMesh::getLogDateTime() {
@@ -983,7 +985,8 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
       _cli(board, rtc, sensors, region_map, acl, &_prefs, this),
       telemetry(MAX_PACKET_PAYLOAD - 4),
       discover_limiter(4, 120),  // max 4 every 2 minutes
-      anon_limiter(4, 180)   // max 4 every 3 minutes
+      anon_limiter(4, 180),   // max 4 every 3 minutes
+      _filter(acl, rtc)
 #if defined(WITH_RS232_BRIDGE)
       , bridge(&_prefs, WITH_RS232_BRIDGE, _mgr, &rtc)
 #elif defined(WITH_ESPNOW_BRIDGE)
@@ -1111,6 +1114,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
+  _filter.load(_fs);
 
   // establish default-scope
   {
@@ -1429,6 +1433,7 @@ void MyMesh::clearStats() {
   radio_driver.resetStats();
   resetStats();
   ((SimpleMeshTables *)getTables())->resetStats();
+  _filter.resetStats();
 }
 
 #ifdef WITH_WEBCONFIG
@@ -1655,6 +1660,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
   } else if (memcmp(command, "discover.scopes", 15) == 0) {
     strcpy(reply, "Err - neighbors not enabled in this build");
 #endif
+  } else if (memcmp(command, "filter", 6) == 0) {
+    _filter.handleCommand(_fs, command, reply);
   } else{
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
   }

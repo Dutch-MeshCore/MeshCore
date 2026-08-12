@@ -19,6 +19,7 @@ Commands:
   build-matching-firmwares <build-match-spec>: Build all firmwares for build targets containing the string given for <build-match-spec>.
   build-companion-firmwares: Build all companion firmwares for all build targets.
   build-repeater-firmwares: Build all repeater firmwares for all build targets.
+  build-dmc-repeater-firmwares: Build all DMC repeater firmwares (same set as build-repeater-firmwares).
   build-room-server-firmwares: Build all chat room server firmwares for all build targets.
 
 Examples:
@@ -163,17 +164,21 @@ build_firmware() {
   # e.g: RAK_4631_Repeater-v1.0.0-SHA
   FIRMWARE_FILENAME="$1-${FIRMWARE_VERSION_STRING}"
 
-  # Tag the *embedded* version for observer builds, e.g. v1.0.0-observer-abcdef,
-  # so `ver`, the MQTT firmware_version/client_version, and SNMP all identify the
-  # fork. The filename above carries the same version + build number but no
-  # variant/channel tag: the env name already contains "observer", and the web
-  # flasher keys off that existing pattern.
+  # Tag the *embedded* version for observer/mqtt builds, e.g.
+  # v1.0.0-dutchmeshcore.nl-observer-mqtt-abcdef, so `ver`, the MQTT
+  # firmware_version/client_version, and SNMP all identify the fork. The filename
+  # above carries the same version + build number but no variant/channel tag: the
+  # env name already contains "observer", and the web flasher keys off that
+  # existing pattern.
   VARIANT_TAG=""
   case "$1" in
-    *observer*) VARIANT_TAG="-observer" ;;
+    *observer*) VARIANT_TAG="${VARIANT_TAG}-observer" ;;
+  esac
+  case "$1" in
+    *mqtt*) VARIANT_TAG="${VARIANT_TAG}-mqtt" ;;
   esac
 
-  # Optional release-channel marker (e.g. OTA_CHANNEL_TAG=beta -> "-observer-beta"),
+  # Optional release-channel marker (e.g. OTA_CHANNEL_TAG=beta -> "-observer-mqtt-beta"),
   # so `ver` / MQTT firmware_version / SNMP identify which channel a node runs
   # without having to infer it from log behavior. Safe for the OTA version logic:
   # ota_parseVersion() reads only up to the first '-' and ota_extractHash() takes
@@ -182,14 +187,24 @@ build_firmware() {
     VARIANT_TAG="${VARIANT_TAG}-${OTA_CHANNEL_TAG}"
   fi
 
-  # Embedded version: base + build number (4th component) + variant/channel tag
-  # + hash, e.g. v1.16.0.5-observer-abcdef, so the node reports its build and
-  # `ota check` can show how many builds behind it is.
-  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${BUILD_NUMBER_SUFFIX}${VARIANT_TAG}-${COMMIT_HASH}"
+  # DMC fork branding, as a middle tag: placed AFTER the version + build-number and
+  # BEFORE the variant tag + hash so OTA version parsing still works (the device reads
+  # the version as the text before the first '-' and the hash as the text after the
+  # last '-' — the brand sits safely in between). Result for an observer_mqtt env:
+  # v1.17.0-dutchmeshcore.nl-observer-mqtt-abcdef; for a plain DMC env:
+  # v1.17.0-dutchmeshcore.nl-abcdef.
+  FORK_TAG="-dutchmeshcore.nl"
+
+  # Embedded version: base + build number (4th component) + fork tag + variant/channel
+  # tag + hash, so the node reports its build and `ota check` can show how many builds
+  # behind it is.
+  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${BUILD_NUMBER_SUFFIX}${FORK_TAG}${VARIANT_TAG}-${COMMIT_HASH}"
 
   # Release channel. The observer pull-OTA fetches its slim per-variant manifest
   # from <OTA_MANIFEST_BASE>/<OTA_VARIANT>.json, so this URL IS the channel: a
   # device only ever sees updates published under the base it was built with.
+  # DMC publishes bins on GitHub Releases with manifests served from
+  # ota.dutchmeshcore.nl (the DMC equivalent of agessaman's observer.gessaman.com).
   # Override OTA_MANIFEST_BASE_URL to publish a parallel channel (e.g. beta);
   # unset gives the production channel.
   #
@@ -201,7 +216,7 @@ build_firmware() {
   # locally built firmware. Note that PLATFORMIO_BUILD_FLAGS cannot reliably
   # override a -D coming from build_flags (SCons reorders -U/-D), which is why
   # the .ini declarations were removed rather than overridden.
-  OTA_MANIFEST_BASE_URL="${OTA_MANIFEST_BASE_URL:-https://observer.gessaman.com/v}"
+  OTA_MANIFEST_BASE_URL="${OTA_MANIFEST_BASE_URL:-https://ota.dutchmeshcore.nl/mqtt/v}"
 
   # add firmware version info to end of existing platformio build flags in environment vars.
   # OTA_VARIANT is the env name ($1) — it selects this build's slim per-variant manifest
@@ -267,6 +282,12 @@ build_repeater_firmwares() {
   # build all repeater firmwares
   build_all_firmwares_by_suffix "_repeater"
 
+}
+
+build_dmc_repeater_firmwares() {
+  # Build all repeater firmwares. The earlier curated board subset was
+  # temporary; DMC now ships the full set (same as build-repeater-firmwares).
+  build_repeater_firmwares
 }
 
 build_companion_firmwares() {
@@ -345,6 +366,8 @@ elif [[ $1 == "build-companion-firmwares" ]]; then
   build_companion_firmwares
 elif [[ $1 == "build-repeater-firmwares" ]]; then
   build_repeater_firmwares
+elif [[ $1 == "build-dmc-repeater-firmwares" ]]; then
+  build_dmc_repeater_firmwares
 elif [[ $1 == "build-room-server-firmwares" ]]; then
   build_room_server_firmwares
 elif [[ $1 == "build-kiss-radio-firmwares" ]]; then

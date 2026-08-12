@@ -9,6 +9,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - [Statistics](#statistics)
 - [Logging](#logging)
 - [Information](#info)
+- [Packet Filter](#packet-filter-repeater-only)
 - [Configuration](#configuration)
   - [Radio](#radio)
   - [System](#system)
@@ -205,6 +206,47 @@ Elsewhere it replies `Err - neighbors not enabled in this build`. If a
 
 ### Show the hardware name
 **Usage:** `board`
+
+---
+
+## Packet Filter (Repeater Only)
+
+The packet filter drops flood (multi-hop) packets that exceed configurable limits before they are repeated, reducing channel congestion. All settings are persisted to `/filter_prefs` and survive reboots.
+
+Find more information in [packet_filter_reference.md](packet_filter_reference.md)
+
+---
+
+### Channel filtering (GRP_TXT)
+**Usage:**
+- `filter channel list`
+- `filter channel add <#name | Public>`
+- `filter channel remove <#name | Public>`
+
+**Parameters:**
+- `name`: Channel name to block, or `Public` for the public channel. Group-text packets on a blocked channel are dropped.
+
+**Note:** Up to 16 channels can be blocked.
+
+---
+
+### Minimum path hash size
+**Usage:**
+- `filter hash` — show the current minimum
+- `filter hash <min_bytes>`
+
+**Parameters:**
+- `min_bytes`: Minimum path hash size, `1`–`3`. Flood packets carrying a smaller path hash are dropped.
+
+---
+
+### Malformed message scanning
+**Usage:**
+- `filter malformed` — show the current state
+- `filter malformed on`
+- `filter malformed off`
+
+**Note:** When enabled, group-text packets on the public channel are decrypted and dropped if their content is not valid UTF-8.
 
 ---
 
