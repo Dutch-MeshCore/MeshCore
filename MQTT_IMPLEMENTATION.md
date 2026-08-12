@@ -368,6 +368,10 @@ Each slot (1-6) supports the following commands:
 
 #### Per-broker packet filters
 
+> For a task-oriented reference (packet-type table, recommended per-broker
+> configurations, and persistence/downgrade notes) see
+> [docs/mqtt_broker_filter_reference.md](docs/mqtt_broker_filter_reference.md).
+
 Each slot has an independent allowlist. List entries may be payload-type names
 or numbers, and the two can be mixed. These are all equivalent, sending only
 text messages and adverts to slot 1:
@@ -713,6 +717,11 @@ Full packet data with RF characteristics and metadata.
 Minimal raw packet data for map integration.
 
 ### Neighbors Topic: `meshcore/{IATA}/{DEVICE_PUBLIC_KEY}/neighbors`
+
+> For a task-oriented reference (the `discover.*` commands, periodic-publishing
+> setup, build requirements, and field-by-field message notes) see
+> [docs/neighbour_discovery_reference.md](docs/neighbour_discovery_reference.md).
+
 Cached zero-hop repeater neighbors with SNR, last-heard age, and flood-allowed scopes. Published on `discover.scopes` or periodically when `mqtt.neighbors` is enabled (observer builds with neighbors compiled in; non-PSRAM builds cap the table at 20 entries and set `truncated`). Goes to every configured slot's `neighbors` topic at QoS 0, retained only where the preset allows it.
 
 Periodic publishing first runs a 60-second zero-hop neighbor refresh equivalent to `discover.neighbors`, then queries the refreshed table for scopes and publishes when the scope-query phase completes.

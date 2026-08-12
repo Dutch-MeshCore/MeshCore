@@ -142,6 +142,8 @@ scopes and publishes the assembled table to the MQTT `neighbors` topic once.
 Elsewhere it replies `Err - neighbors not enabled in this build`. If a
 `discover.neighbors` refresh is already in flight, the scope pass is queued behind it.
 
+Find more information in [neighbour_discovery_reference.md](neighbour_discovery_reference.md), including the periodic-publishing commands, the `neighbors` topic, and the published message format.
+
 ---
 
 ## Statistics
