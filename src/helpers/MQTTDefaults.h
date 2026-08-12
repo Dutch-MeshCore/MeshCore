@@ -16,13 +16,13 @@
 //   -D MQTT_DEFAULT_TIMEZONE_OFFSET=-5
 
 #ifndef MQTT_DEFAULT_SLOT1_PRESET
-#define MQTT_DEFAULT_SLOT1_PRESET "analyzer-us"
+#define MQTT_DEFAULT_SLOT1_PRESET "dutchmeshcore-1"   // DMC fork default (was upstream "analyzer-us")
 #endif
 #ifndef MQTT_DEFAULT_SLOT2_PRESET
-#define MQTT_DEFAULT_SLOT2_PRESET "analyzer-eu"
+#define MQTT_DEFAULT_SLOT2_PRESET "dutchmeshcore-2"   // DMC fork default (was upstream "analyzer-eu")
 #endif
 #ifndef MQTT_DEFAULT_SLOT3_PRESET
-#define MQTT_DEFAULT_SLOT3_PRESET "none"
+#define MQTT_DEFAULT_SLOT3_PRESET "meshcore-analyzer-eu"   // DMC fork default (meshcore-analyzer.eu)
 #endif
 #ifndef MQTT_DEFAULT_SLOT4_PRESET
 #define MQTT_DEFAULT_SLOT4_PRESET "none"
@@ -39,11 +39,11 @@
 #endif
 
 #ifndef MQTT_DEFAULT_TIMEZONE
-#define MQTT_DEFAULT_TIMEZONE ""
+#define MQTT_DEFAULT_TIMEZONE "Europe/Amsterdam"   // DMC fork default (was upstream "")
 #endif
 
 #ifndef MQTT_DEFAULT_TIMEZONE_OFFSET
-#define MQTT_DEFAULT_TIMEZONE_OFFSET 0
+#define MQTT_DEFAULT_TIMEZONE_OFFSET 1   // DMC fork default (Amsterdam; was upstream 0)
 #endif
 
 static inline void mqttDefaultSlotPreset(char* dest, size_t dest_size, const char* preset) {

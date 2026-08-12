@@ -21,6 +21,8 @@ Commands:
   build-repeater-firmwares: Build all repeater firmwares for all build targets.
   build-dmc-repeater-firmwares: Build all DMC repeater firmwares (same set as build-repeater-firmwares).
   build-room-server-firmwares: Build all chat room server firmwares for all build targets.
+  build-repeater-mqtt-firmwares: Build all MQTT repeater observer firmwares for all build targets.
+  build-room-server-mqtt-firmwares: Build all MQTT room server observer firmwares for all build targets.
 
 Examples:
 Build firmware for the "RAK_4631_repeater" device target
@@ -321,6 +323,16 @@ build_room_server_firmwares() {
 
 }
 
+build_repeater_mqtt_firmwares() {
+  # build all MQTT repeater observer firmwares
+  build_all_firmwares_by_suffix "_repeater_observer_mqtt"
+}
+
+build_room_server_mqtt_firmwares() {
+  # build all MQTT room server observer firmwares
+  build_all_firmwares_by_suffix "_room_server_observer_mqtt"
+}
+
 build_kiss_modem_firmwares() {
 
 #  # build specific kiss radio firmwares
@@ -370,6 +382,10 @@ elif [[ $1 == "build-dmc-repeater-firmwares" ]]; then
   build_dmc_repeater_firmwares
 elif [[ $1 == "build-room-server-firmwares" ]]; then
   build_room_server_firmwares
+elif [[ $1 == "build-repeater-mqtt-firmwares" ]]; then
+  build_repeater_mqtt_firmwares
+elif [[ $1 == "build-room-server-mqtt-firmwares" ]]; then
+  build_room_server_mqtt_firmwares
 elif [[ $1 == "build-kiss-radio-firmwares" ]]; then
   build_kiss_modem_firmwares
 elif [[ $1 == "get-companion-firmwares-to-build" ]]; then
