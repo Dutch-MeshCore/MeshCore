@@ -4,13 +4,10 @@ permissions:
   contents: write
 
 on:
+  # Dispatch-only. DMC releases are built locally (scripts/publish-release.sh) to
+  # avoid spending Actions runner minutes; the "Run workflow" button remains as a
+  # runner fallback. Pushing a dmc-repeater-* tag no longer auto-builds.
   workflow_dispatch:
-  push:
-    tags:
-      - 'dmc-repeater-*'
-      # Exclude the observer MQTT repeater tags (they have their own workflow).
-      # 'dmc-repeater-*' otherwise also matches 'dmc-repeater-mqtt-*'.
-      - '!dmc-repeater-mqtt-*'
 
 jobs:
   build:

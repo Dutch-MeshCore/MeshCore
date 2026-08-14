@@ -4,14 +4,10 @@ permissions:
   contents: write
 
 on:
+  # Dispatch-only. DMC releases are built locally (scripts/publish-release.sh) to
+  # avoid spending Actions runner minutes; the "Run workflow" button remains as a
+  # runner fallback. Pushing a dmc-room-server-* tag no longer auto-builds.
   workflow_dispatch:
-  push:
-    tags:
-      - 'dmc-room-server-*'
-      # Exclude the observer MQTT room-server tags (they have their own
-      # workflow). 'dmc-room-server-*' otherwise also matches
-      # 'dmc-room-server-mqtt-*'.
-      - '!dmc-room-server-mqtt-*'
 
 jobs:
   build:
