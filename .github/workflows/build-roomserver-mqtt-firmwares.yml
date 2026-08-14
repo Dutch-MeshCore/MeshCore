@@ -4,15 +4,15 @@ permissions:
   contents: write
 
 on:
+  # Dispatch-only. DMC releases are built locally (scripts/publish-release.sh) to
+  # avoid spending Actions runner minutes; the "Run workflow" button remains as a
+  # runner fallback. Pushing a dmc-room-server-mqtt-* tag no longer auto-builds.
   workflow_dispatch:
     inputs:
       version:
         description: 'Firmware version, e.g. v1.16.0 (used as FIRMWARE_VERSION and release name)'
         required: true
         type: string
-  push:
-    tags:
-      - 'dmc-room-server-mqtt-*'
 
 jobs:
 
@@ -29,14 +29,13 @@ jobs:
       - name: Build Firmwares
         env:
           FIRMWARE_VERSION: ${{ inputs.version || env.GIT_TAG_VERSION }}
-          OUT_DIR: .prebuilt
         run: /usr/bin/env bash build.sh build-room-server-mqtt-firmwares
 
       - name: Upload Workflow Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: room-server-mqtt-firmwares
-          path: .prebuilt
+          path: out
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -47,4 +46,4 @@ jobs:
           name: DMC Roomserver Firmware ${{ inputs.version || env.GIT_TAG_VERSION }}
           body: ""
           draft: true
-          files: .prebuilt/*
+          files: out/*
