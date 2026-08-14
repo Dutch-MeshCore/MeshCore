@@ -44,7 +44,7 @@ jobs:
         with:
           # On manual dispatch there is no tag ref, so synthesize one from the input version.
           tag_name: ${{ github.event_name == 'workflow_dispatch' && format('dmc-repeater-mqtt-{0}', inputs.version) || github.ref_name }}
-          name: Repeater MQTT Firmware ${{ inputs.version || env.GIT_TAG_VERSION }}
+          name: DMC Repeater MQTT Firmware ${{ inputs.version || env.GIT_TAG_VERSION }}
           body: ""
           draft: true
           files: .prebuilt/*
