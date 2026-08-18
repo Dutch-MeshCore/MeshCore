@@ -11,6 +11,10 @@ on:
       # Exclude the observer MQTT repeater tags (they have their own workflow).
       # 'dmc-repeater-*' otherwise also matches 'dmc-repeater-mqtt-*'.
       - '!dmc-repeater-mqtt-*'
+      # Exclude the packetlog firmware tags: those releases are published from
+      # locally pre-built bins (local publish flow), so a runner rebuild would
+      # only waste minutes and could clobber the uploaded assets.
+      - '!dmc-repeater-packetlog-*'
 
 jobs:
   build:
