@@ -201,6 +201,84 @@ The packet filter drops flood (multi-hop) packets that exceed configurable limit
 
 Find more information in [packet_filter_reference.md](packet_filter_reference.md)
 
+Configuration and statistics are kept apart: `filter <setting>` shows and changes a setting, `filter stats <topic>` reports what that setting dropped.
+
+---
+
+### Enabling and resetting
+**Usage:**
+- `filter help` — list every subcommand
+- `filter on`
+- `filter off`
+- `filter reset` — restore the default settings (counters are not affected)
+- `filter types` — list the packet type IDs used by `hops`, `rate` and `count`
+
+**Note:** The filter is disabled by default. Direct-routed packets and packets involving known ACL contacts always bypass it.
+
+---
+
+### Status
+**Usage:**
+- `filter` — status and drop totals per reason
+- `filter count` — hop and rate drops per packet type
+
+**Example:**
+```text
+filter
+> Filter on: Blocked [ Hops: 326 | Rate: 0 | Channel: 0 | Hash: 8097 | Malformed: 0 ]
+```
+
+**Note:** Statistics live in RAM and are cleared by `clear stats` and on reboot.
+
+---
+
+### Drop statistics per topic
+**Usage:**
+- `filter stats` — list the available topics
+- `filter stats hops`
+- `filter stats rate`
+- `filter stats hash`
+- `filter stats channel`
+- `filter stats malformed`
+- `filter stats top`
+
+**Example:**
+```text
+filter stats hops
+[TYPE: DROPS(MAX)]
+04: 326(8)
+05: 8097(32)
+```
+
+**Note:** `hops` and `rate` list only the packet types that dropped something, with the limit that caused it in brackets. `top` lists the source identity hashes responsible for the most drops; a packet only carries a 1-byte identity hash, so nodes sharing a leading byte are counted together — it is a lead, not proof. See [packet_filter_reference.md](packet_filter_reference.md) for which payload types can be attributed.
+
+---
+
+### Hop limits
+**Usage:**
+- `filter hops` — show the current limits
+- `filter hops <type> <max_hops>`
+
+**Parameters:**
+- `type`: Packet type ID, `00`–`11`. See `filter types`.
+- `max_hops`: `0`–`64`. Flood packets that already carry this many hops are dropped.
+
+**Note:** The drops are reported by `filter stats hops`.
+
+---
+
+### Rate limits
+**Usage:**
+- `filter rate` — show the current limits
+- `filter rate <type> <limit> <seconds>`
+
+**Parameters:**
+- `type`: Packet type ID, `00`–`11`.
+- `limit`: Packets allowed per window; `0` disables rate limiting for that type.
+- `seconds`: Length of the window.
+
+**Note:** Rate limits apply per packet type, not per sender. The drops are reported by `filter stats rate`.
+
 ---
 
 ### Channel filtering (GRP_TXT)
@@ -212,7 +290,7 @@ Find more information in [packet_filter_reference.md](packet_filter_reference.md
 **Parameters:**
 - `name`: Channel name to block, or `Public` for the public channel. Group-text packets on a blocked channel are dropped.
 
-**Note:** Up to 16 channels can be blocked.
+**Note:** Up to 16 channels can be blocked. The value in brackets is the channel hash byte the filter matches on. Drops per channel are reported by `filter stats channel`.
 
 ---
 
@@ -224,6 +302,8 @@ Find more information in [packet_filter_reference.md](packet_filter_reference.md
 **Parameters:**
 - `min_bytes`: Minimum path hash size, `1`–`3`. Flood packets carrying a smaller path hash are dropped.
 
+**Note:** Nodes flood with 1-byte path hashes by default, so a minimum of `2` discards nearly all flood traffic rather than just the abusive part. `filter stats hash` splits the drops by the path hash size they carried, which shows exactly that.
+
 ---
 
 ### Malformed message scanning
@@ -232,7 +312,7 @@ Find more information in [packet_filter_reference.md](packet_filter_reference.md
 - `filter malformed on`
 - `filter malformed off`
 
-**Note:** When enabled, group-text packets on the public channel are decrypted and dropped if their content is not valid UTF-8.
+**Note:** When enabled, group-text packets on the public channel are decrypted and dropped if their content is not valid UTF-8. `filter stats malformed` splits the drops by rejection reason.
 
 ---
 

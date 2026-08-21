@@ -15,6 +15,43 @@ The filter is **disabled by default**.
 
 Direct-routed packets bypass the filter. Priority packets involving known ACL contacts are also exempt.
 
+Configuration and statistics are kept apart. Every `filter <setting>` command
+shows and changes a setting; every `filter stats <topic>` command reports what
+that setting actually dropped. See [Statistics](#statistics).
+
+---
+
+# Command Overview
+
+| Command | Purpose |
+| ------- | ------- |
+| `filter` | Status and the drop totals per reason |
+| `filter help` | List every subcommand |
+| `filter on` / `filter off` | Enable or disable filtering |
+| `filter reset` | Restore all settings to their defaults |
+| `filter types` | List the packet type IDs |
+| `filter count` | Hop and rate drops per packet type |
+| `filter hops` | Current hop limits |
+| `filter hops <type> <max_hops>` | Set a hop limit |
+| `filter rate` | Current rate limits |
+| `filter rate <type> <limit> <secs>` | Set a rate limit |
+| `filter channel list` | Blocked channels |
+| `filter channel add` / `filter channel remove` | Block or unblock a channel |
+| `filter hash` | Current minimum path hash size |
+| `filter hash <bytes>` | Set the minimum path hash size |
+| `filter malformed` | Current malformed scan state |
+| `filter malformed on` / `filter malformed off` | Enable or disable the malformed scan |
+| `filter stats <topic>` | Drops for one topic, in detail |
+
+The same list is available on the device:
+
+```text
+filter help
+> filter [ help | on | off | reset | types | count | stats <topic> | hops <args> | rate <args> | channel <args> | hash <min_bytes> | malformed <on | off> ]
+```
+
+Commands that change a setting reply `> Filter: OK` unless noted otherwise.
+
 ---
 
 # Enabling the Filter
@@ -23,25 +60,32 @@ Display the current status:
 
 ```text
 filter
+> Filter on: Blocked [ Hops: 326 | Rate: 0 | Channel: 0 | Hash: 8097 | Malformed: 0 ]
 ```
 
 Enable filtering:
 
 ```text
 filter on
+> Filter: on
 ```
 
 Disable filtering:
 
 ```text
 filter off
+> Filter: off
 ```
 
 Reset all settings to their defaults:
 
 ```text
 filter reset
+> Filter: preferences reset
 ```
+
+This resets the settings, not the counters. Statistics are cleared by
+`clear stats` and on reboot.
 
 ---
 
@@ -76,6 +120,19 @@ Display current limits:
 
 ```text
 filter hops
+[TYPE: MAX_HOPS]
+00: 8
+01: 8
+02: 8
+03: 8
+04: 8
+05: 32
+06: 8
+07: 8
+08: 8
+09: 8
+10: 8
+11: 8
 ```
 
 Set the maximum hop count for a packet type:
@@ -88,7 +145,10 @@ Example:
 
 ```text
 filter hops 05 16
+> Filter: OK
 ```
+
+The drops this limit caused are reported by `filter stats hops`.
 
 Default limits:
 
@@ -115,6 +175,19 @@ Display current configuration:
 
 ```text
 filter rate
+[TYPE: LIMIT,SECS]
+00: 5,60
+01: 5,60
+02: 20,60
+03: 5,60
+04: 10,60
+05: 20,60
+06: 5,60
+07: 5,60
+08: 5,60
+09: 5,60
+10: 5,60
+11: 5,60
 ```
 
 Configure a rate limit:
@@ -127,7 +200,10 @@ Example:
 
 ```text
 filter rate 05 20 60
+> Filter: OK
 ```
+
+The drops this limit caused are reported by `filter stats rate`.
 
 This allows up to **20 Group Text packets every 60 seconds**.
 
@@ -154,11 +230,15 @@ Default limits:
 
 # Channel Blocking
 
-List blocked channels:
+List blocked channels, with the channel hash byte the filter matches on:
 
 ```text
 filter channel list
+#bot (a3),#test (5c)
 ```
+
+With nothing blocked the reply is `None`. Drops per channel are reported by
+`filter stats channel`.
 
 Add a blocked channel:
 
@@ -170,7 +250,7 @@ Examples:
 
 ```text
 filter channel add #bot
-filter channel add #test
+> Filter: channel #bot added
 ```
 
 Remove a blocked channel:
@@ -183,6 +263,7 @@ Example:
 
 ```text
 filter channel remove #test
+> Filter: channel #test removed
 ```
 
 Up to **16 channels** can be blocked.
@@ -197,6 +278,7 @@ Display the current value:
 
 ```text
 filter hash
+> Filter: minimal 1 bytes path hash size
 ```
 
 Configure the minimum path hash size:
@@ -217,9 +299,14 @@ Example:
 
 ```text
 filter hash 2
+> Filter: OK
 ```
 
 Packets containing fewer path hash bytes than configured are discarded.
+
+Be careful with this one. Nodes flood with 1-byte path hashes by default, so a
+minimum of `2` discards nearly all flood traffic rather than just the abusive
+part. `filter stats hash` shows exactly that.
 
 Default:
 
@@ -235,18 +322,21 @@ Display the current setting:
 
 ```text
 filter malformed
+> Filter: malformed text scan off
 ```
 
 Enable validation:
 
 ```text
 filter malformed on
+> Filter: malformed scan on
 ```
 
 Disable validation:
 
 ```text
 filter malformed off
+> Filter: malformed scan off
 ```
 
 When enabled, Group Text packets are checked for:
@@ -283,11 +373,9 @@ Display per-packet-type statistics:
 
 ```text
 filter count
-```
-
-Example:
-
-```text
+[TYPE: HOPS,RATE]
+00: 0,0
+...
 05: 2,10
 ```
 
@@ -296,6 +384,90 @@ Meaning:
 * Packet Type 05 (Group Text)
 * 2 packets blocked by hop limit
 * 10 packets blocked by rate limiting
+
+## Per-topic detail
+
+`filter` answers *how much was dropped*; `filter stats <topic>` answers *why,
+and against which setting*. Each topic gets its own reply, so it has room for
+detail that would not fit on the summary line.
+
+```text
+filter stats
+> filter stats [ hops | rate | hash | channel | malformed | top ]
+```
+
+### hops and rate
+
+Only the packet types that dropped something are listed, with the limit that
+caused it in brackets:
+
+```text
+filter stats hops
+[TYPE: DROPS(MAX)]
+04: 326(8)
+05: 8097(32)
+
+filter stats rate
+[TYPE: DROPS(LIMIT/SECS)]
+02: 12(20/60)
+```
+
+Type 05 dropped 8097 packets against a hop limit of 32; type 02 dropped 12
+against a limit of 20 per 60 seconds. That is the whole question — *is this
+limit doing work, and is it set right* — in one line.
+
+### hash
+
+```text
+filter stats hash
+> Blocked 8097 [1B:8097 2B:0 3B:0]
+  Top types: 04:5012 05:2100 02:985
+```
+
+The split is the path hash size the dropped packets carried. A large `1B`
+figure against a minimum of 2 means the setting is rejecting ordinary traffic
+rather than abuse — nodes flood with 1-byte path hashes by default.
+
+### channel
+
+```text
+filter stats channel
+#bot (a3): 412,#test (5c): 0
+```
+
+### malformed
+
+```text
+filter stats malformed
+> Blocked 12 [ short:1 time:8 empty:0 utf8:3 ]
+```
+
+The reasons match the checks in order: payload too short, timestamp zero or
+outside the one-week window, plain-text message with no text, and text that is
+not valid UTF-8.
+
+### top
+
+```text
+filter stats top
+> Top drops: a3:412 5c:288 11:190
+```
+
+The source identities responsible for the most drops, worst first. The value on
+the left is the 1-byte identity hash, which is all a packet carries, so distinct
+nodes sharing a leading byte are counted together — treat it as a lead, not as
+proof of which node is responsible.
+
+Sources can only be attributed where the payload carries an identity: adverts,
+and REQ, RESPONSE, TXT\_MSG, ANON\_REQ and PATH packets. ACK and TRACE hold no
+identity and group traffic is encrypted, so those drops appear only in the
+totals.
+
+## Limits
+
+Counters saturate rather than wrap, so a busy repeater reports `4294967295`
+instead of rolling back to a small number. Any reply clipped by the 160-byte
+reply buffer ends in `..`.
 
 Statistics are reset together with the repeater statistics.
 
@@ -365,10 +537,11 @@ Monitor the output of:
 
 ```text
 filter
-filter count
+filter stats channel
 ```
 
-to understand the effect. Take into account that this will prevent your repeater from forwarding the packet to other repeaters and companions, but it will still receive them.
+to understand the effect. `filter stats channel` reports the drops per blocked
+channel, so you can tell which entry is doing the work. Take into account that this will prevent your repeater from forwarding the packet to other repeaters and companions, but it will still receive them.
 
 ---
 
@@ -380,3 +553,7 @@ to understand the effect. Take into account that this will prevent your repeater
 * Channel blocking only affects `GRP_TXT` packets.
 * Malformed message validation only applies to `GRP_TXT` packets.
 * Rate limits are applied per packet type, not per sender.
+* Statistics live in RAM only. They are cleared on reboot and by `clear stats`, and they are never written to `/filter_prefs`.
+* Counters saturate at their maximum rather than wrapping around to zero.
+* A reply that does not fit the 160-byte CLI buffer ends in `..`.
+* `filter <setting>` shows and changes a setting; `filter stats <topic>` reports what it dropped.
