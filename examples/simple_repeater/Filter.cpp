@@ -203,7 +203,7 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
         uint8_t count = atoi(parts[3]);
 
         if (type < 0 || type >= PAYLOAD_TYPE_COUNT) {
-          strcpy(reply, "> Filter: error <type> range is 0-10");
+          strcpy(reply, "> Filter: error <type> range is 0-11");
         } else if (count < 0 || count > 64) {
           strcpy(reply, "> Filter: error <max_hops> range is 0-64");
         } else {
@@ -224,7 +224,7 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
         uint32_t secs = atoi(parts[4]);
 
         if (type < 0 || type >= PAYLOAD_TYPE_COUNT) {
-          strcpy(reply, "> Filter: error type range is 0-10");
+          strcpy(reply, "> Filter: error <type> range is 0-11");
         } else {
           _prefs.payload_prefs[type].rate_limit = limit;
           _prefs.payload_prefs[type].rate_secs = secs;
