@@ -1247,6 +1247,20 @@ region save
 
 ---
 
+#### View or change the filter-stats publish interval (MQTT observer)
+**Usage:**
+- `get mqtt.filter.interval`
+- `set mqtt.filter.interval <seconds>`
+
+**Parameters:**
+- `seconds`: how often to publish the packet-filter drop statistics to the `filter` MQTT topic. `0` disables the topic; any other value is clamped into the 60–600 s band.
+
+**Default:** `60` (seconds)
+
+**Description:** Publishes the full packet-filter drop-counter set plus per-type configuration as one JSON message on the `filter` topic, for live analyzer monitoring. See [packet_filter_reference.md](packet_filter_reference.md#publishing-statistics-over-mqtt-observer-builds). Changing it restarts the bridge. Stored in `/mqtt_prefs`.
+
+---
+
 #### View or change the NTP server (MQTT observer only)
 **Usage:**
 - `get mqtt.ntp`
