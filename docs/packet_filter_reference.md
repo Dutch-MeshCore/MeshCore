@@ -361,12 +361,7 @@ Display filter status:
 
 ```text
 filter
-```
-
-Example:
-
-```text
-Filter on: Blocked [ Hops: 3 | Rate: 12 | Channel: 1 | Hash: 0 | Malformed: 2 ]
+> Filter on: Blocked [ Hops: 3 | Rate: 12 | Channel: 1 | Hash: 0 | Malformed: 2 ]
 ```
 
 Display per-packet-type statistics:
@@ -375,8 +370,17 @@ Display per-packet-type statistics:
 filter count
 [TYPE: HOPS,RATE]
 00: 0,0
-...
+01: 0,0
+02: 0,0
+03: 0,0
+04: 0,0
 05: 2,10
+06: 0,0
+07: 0,0
+08: 0,0
+09: 0,0
+10: 0,0
+11: 0,0
 ```
 
 Meaning:
@@ -395,6 +399,23 @@ detail that would not fit on the summary line.
 filter stats
 > filter stats [ hops | rate | hash | channel | malformed | top ]
 ```
+
+An unknown topic returns that same list.
+
+Until something has actually been dropped, each topic says so rather than
+printing an empty table:
+
+| Command | Reply when nothing was dropped |
+| ------- | ------------------------------ |
+| `filter stats hops` | `> Filter: no hop drops recorded` |
+| `filter stats rate` | `> Filter: no rate drops recorded` |
+| `filter stats hash` | `> Filter: no path hash drops recorded` |
+| `filter stats malformed` | `> Filter: no malformed drops recorded` |
+| `filter stats top` | `> Filter: no source drops recorded` |
+| `filter stats channel` | `None`, when no channels are blocked |
+
+The counters live in RAM, so this is also what you see after a reboot or a
+`clear stats`.
 
 ### hops and rate
 
@@ -557,3 +578,20 @@ channel, so you can tell which entry is doing the work. Take into account that t
 * Counters saturate at their maximum rather than wrapping around to zero.
 * A reply that does not fit the 160-byte CLI buffer ends in `..`.
 * `filter <setting>` shows and changes a setting; `filter stats <topic>` reports what it dropped.
+
+---
+
+# Error Replies
+
+| Reply | Cause |
+| ----- | ----- |
+| `> Filter: command error` | Unrecognised subcommand |
+| `> Filter: error <type> range is 0-11` | Packet type outside `00`–`11` |
+| `> Filter: error <max_hops> range is 0-64` | Hop limit outside `0`–`64` |
+| `> Filter: error hash bytes range is 1-3` | Minimum path hash size outside `1`–`3` |
+| `> Filter: syntax error 'filter hops <type> <max_hops>'` | Wrong number of arguments |
+| `> Filter: syntax error 'filter rate <type> <limit> <secs>'` | Wrong number of arguments |
+| `> Filter: syntax error 'filter channel [list \| add \| remove] <#name \| Public>'` | Wrong number of arguments |
+| `Failed` | `filter channel add` with the list full, or `remove` with no such channel |
+
+An unknown `filter stats` topic is not an error: it returns the list of topics.
