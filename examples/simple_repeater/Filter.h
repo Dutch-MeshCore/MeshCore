@@ -6,8 +6,14 @@
 #include <helpers/ClientACL.h>
 #include <helpers/TxtDataHelpers.h>
 
+#include "FilterStats.h"
+#include "Limiter.h"
+
 #define FILTER_PREFS_FILE    "/filter_prefs"
-#define FILTER_CHANNEL_COUNT 16
+
+// Size of the `reply` buffer every CLI command writes into, both over serial
+// (main.cpp) and over the mesh (MyMesh.cpp).
+#define FILTER_REPLY_SIZE    160
 
 static const uint8_t PUBLIC_CHANNEL_SECRET[PUB_KEY_SIZE] = { 0x8B, 0x33, 0x87, 0xE9, 0xC5, 0xCD, 0xEA, 0x6A,
                                                              0xC9, 0xE5, 0xED, 0xBA, 0xA1, 0x15, 0xCD, 0x72,
@@ -15,7 +21,6 @@ static const uint8_t PUBLIC_CHANNEL_SECRET[PUB_KEY_SIZE] = { 0x8B, 0x33, 0x87, 0
                                                              0,    0,    0,    0,    0,    0,    0,    0 };
 static const uint8_t PUBLIC_CHANNEL_HASH = 0x11;
 static const uint32_t INVALID_TIMESTAMP_WINDOW = (7 * 24 * 60 * 60); // 1 week
-static const uint8_t PAYLOAD_TYPE_COUNT = 0x0C;
 
 struct ChannelDetails {
   mesh::GroupChannel channel;
@@ -26,12 +31,6 @@ struct ChannelDetails {
     memset(channel.hash, 0, sizeof(channel.hash));
     memset(channel.secret, 0, sizeof(channel.secret));
   }
-};
-
-struct PayloadPrefs {
-  uint8_t hops_max;
-  uint16_t rate_limit;
-  uint32_t rate_secs;
 };
 
 struct FilterPrefs {
@@ -53,40 +52,9 @@ struct FilterPrefs {
   ChannelDetails filter_channels[FILTER_CHANNEL_COUNT];
   uint8_t minimal_hash_bytes = 1;
   uint8_t filter_malformed = false;
-};
-
-struct Counters {
-  uint16_t hops[PAYLOAD_TYPE_COUNT] = {};
-  uint16_t rate[PAYLOAD_TYPE_COUNT] = {};
-  uint16_t channel = 0;
-  uint16_t hash = 0;
-  uint16_t malformed = 0;
-};
-
-class Limiter {
-  uint32_t _start;
-  uint32_t _secs;
-  uint16_t _limit, _count;
-
-public:
-  Limiter() : _limit(0), _secs(0), _start(0), _count(0) {}
-
-  void init(uint16_t limit, uint32_t secs) {
-    _limit = limit;
-    _secs = secs;
-    _start = _count = 0;
-  }
-
-  bool allow(uint32_t now) {
-    if (!_limit) return true;
-    if (now < _start + _secs) {
-      if (++_count > _limit) return false;
-    } else {
-      _start = now;
-      _count = 1;
-    }
-    return true;
-  }
+  // Appended at the end of the struct so older /filter_prefs files (which lack
+  // these bytes) still load: a short read leaves them at 0 = soft cutoff off.
+  uint16_t soft_limit[PAYLOAD_TYPE_COUNT] = {};
 };
 
 class Filter {
@@ -95,26 +63,42 @@ class Filter {
   FilterPrefs _prefs;
   Limiter _limiters[PAYLOAD_TYPE_COUNT];
   Counters _cnt;
+  uint32_t _rng_state;
+
+  // xorshift32: cheap, dependency-free source of a random byte for the soft
+  // cutoff. State is never allowed to reach 0 (that would freeze the sequence).
+  uint8_t nextRandom() {
+    uint32_t x = _rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    _rng_state = x ? x : 0xA5A5F00D;
+    return (uint8_t)(_rng_state >> 24);
+  }
 
 public:
   enum ResponseType {
       HOPS,
-      RATE,
-      COUNT
+      RATE
   };
 
-  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc) {}
+  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc), _rng_state(0xA5A5F00D) {}
   void resetPrefs(void) { _prefs = FilterPrefs(); }
-  void resetStats(void) { _cnt = Counters(); }
+  void resetStats(void) { _cnt.reset(); }
+  // Read-only access for the MQTT filter-stats publisher.
+  const Counters& getCounters(void) const { return _cnt; }
+  const FilterPrefs& getPrefs(void) const { return _prefs; }
+  bool isEnabled(void) const { return _prefs.filter_enabled; }
   bool allowPacketForward(const mesh::Packet *packet);
   bool hasPriority(const mesh::Packet *packet);
+  static bool srcHash(const mesh::Packet *packet, uint8_t *out);
   void handleCommand(FILESYSTEM *fs, char *command, char *reply);
   void formatResponse(char *reply, ResponseType rtype);
   bool addChannel(const char *name);
   bool removeChannel(const char *name);
   static bool getChannelHash(const char *name, mesh::GroupChannel *gc);
-  void listChannelNames(char *out_buf, size_t out_size);
-  bool validMessageContent(const uint8_t *data, uint8_t len);
+  void listChannelNames(char *out_buf, size_t out_size, bool with_counts = false);
+  bool validMessageContent(const uint8_t *data, uint8_t len, uint8_t *reason);
   static bool isValidUTF8(const uint8_t *data, uint8_t len);
   bool load(FILESYSTEM *fs);
   bool save(FILESYSTEM *fs) const;
