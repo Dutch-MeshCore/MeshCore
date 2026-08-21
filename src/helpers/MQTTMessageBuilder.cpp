@@ -66,6 +66,113 @@ int MQTTMessageBuilder::buildStatusMessage(
       packets_sent, packets_received, repeat);
 }
 
+// Same success criterion the payload builder uses: only a positive return is
+// published, and a truncated buffer is cleared so it can't read as valid JSON.
+static int serializeFilterStats(JsonObject root, char* buffer, size_t buffer_size) {
+  if (!buffer || buffer_size == 0) return 0;
+  size_t written = serializeJson(root, buffer, buffer_size);
+  if (written == 0 || written >= buffer_size) {
+    buffer[0] = '\0';
+    return 0;
+  }
+  return static_cast<int>(written);
+}
+
+int MQTTMessageBuilder::buildFilterStatsMessage(
+    JsonDocument& doc, const MQTTFilterStatsView& v, char* buffer, size_t buffer_size) {
+  doc.clear();
+  JsonObject root = doc.to<JsonObject>();
+
+  root["timestamp"] = v.timestamp;
+  root["origin"] = v.origin;
+  root["origin_id"] = v.origin_id;
+  root["uptime_secs"] = v.uptime_secs;
+  root["boot_id"] = v.boot_id;
+  root["enabled"] = v.enabled;
+
+  uint32_t hops_total = 0, rate_total = 0;
+  for (int i = 0; i < MQTTFilterStatsView::TYPE_COUNT; i++) {
+    hops_total += v.hops[i];
+    rate_total += v.rate[i];
+  }
+  JsonObject totals = root["totals"].to<JsonObject>();
+  totals["hops"] = hops_total;
+  totals["rate"] = rate_total;
+  totals["channel"] = v.channel_total;
+  totals["hash"] = v.hash_total;
+  totals["malformed"] = v.malformed_total;
+
+  char key[4];  // two-digit type id, mutable so ArduinoJson copies it
+
+  JsonObject hops = root["hops"].to<JsonObject>();
+  for (int i = 0; i < MQTTFilterStatsView::TYPE_COUNT; i++) {
+    if (v.hops[i] == 0) continue;
+    snprintf(key, sizeof(key), "%02d", i);
+    hops[key] = v.hops[i];
+  }
+  JsonObject rate = root["rate"].to<JsonObject>();
+  for (int i = 0; i < MQTTFilterStatsView::TYPE_COUNT; i++) {
+    if (v.rate[i] == 0) continue;
+    snprintf(key, sizeof(key), "%02d", i);
+    rate[key] = v.rate[i];
+  }
+
+  JsonObject hash = root["hash"].to<JsonObject>();
+  JsonObject hsz = hash["size"].to<JsonObject>();
+  hsz["1B"] = v.hash_size[0];
+  hsz["2B"] = v.hash_size[1];
+  hsz["3B"] = v.hash_size[2];
+  if (v.hash_size[3] > 0) hsz["4B"] = v.hash_size[3];
+  if (v.hash_top_count > 0) {
+    JsonObject htt = hash["top_types"].to<JsonObject>();
+    for (int i = 0; i < v.hash_top_count; i++) {
+      snprintf(key, sizeof(key), "%02d", v.hash_top_types[i].type);
+      htt[key] = v.hash_top_types[i].drops;
+    }
+  }
+
+  JsonObject mal = root["malformed"].to<JsonObject>();
+  mal["short"] = v.malformed_reason[0];
+  mal["time"] = v.malformed_reason[1];
+  mal["empty"] = v.malformed_reason[2];
+  mal["utf8"] = v.malformed_reason[3];
+
+  if (v.channel_count > 0) {
+    JsonArray chs = root["channels"].to<JsonArray>();
+    char hh[3];
+    for (int i = 0; i < v.channel_count; i++) {
+      JsonObject e = chs.add<JsonObject>();
+      snprintf(hh, sizeof(hh), "%02x", v.channels[i].hash);
+      e["hash"] = hh;                       // mutable char[] -> copied
+      e["name"] = v.channels[i].name;       // persists in filter prefs
+      e["drops"] = v.channels[i].drops;
+    }
+  }
+
+  if (v.top_count > 0) {
+    JsonArray top = root["top_sources"].to<JsonArray>();
+    char hh[3];
+    for (int i = 0; i < v.top_count; i++) {
+      JsonObject e = top.add<JsonObject>();
+      snprintf(hh, sizeof(hh), "%02x", v.top_sources[i].hash);
+      e["hash"] = hh;
+      e["drops"] = v.top_sources[i].drops;
+    }
+  }
+
+  JsonObject cfg = root["config"].to<JsonObject>();
+  for (int i = 0; i < MQTTFilterStatsView::TYPE_COUNT; i++) {
+    snprintf(key, sizeof(key), "%02d", i);
+    JsonObject c = cfg[key].to<JsonObject>();
+    c["limit"] = v.cfg_limit[i];
+    c["secs"] = v.cfg_secs[i];
+    c["soft"] = v.cfg_soft[i];
+    c["hops_max"] = v.cfg_hops_max[i];
+  }
+
+  return serializeFilterStats(root, buffer, buffer_size);
+}
+
 int MQTTMessageBuilder::buildPacketMessage(
   JsonDocument& doc,
   const char* origin,

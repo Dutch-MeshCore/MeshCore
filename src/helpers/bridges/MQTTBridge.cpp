@@ -1471,6 +1471,17 @@ void MQTTBridge::mqttTaskLoop() {
     }
 #endif
 
+    // Consume a pending filter-stats snapshot handed over by the mesh (Core 1).
+    if (_filter_publish_pending.load(std::memory_order_acquire)) {
+      bool ok = publishFilterStats();
+      if (ok) {
+        MQTT_DEBUG_PRINTLN("Filter stats published");
+      } else {
+        MQTT_DEBUG_PRINTLN("Filter stats publish failed");
+      }
+      _filter_publish_pending.store(false, std::memory_order_release);
+    }
+
 #ifdef WITH_SNMP
     // SNMP agent loop — process incoming UDP requests
     if (_snmp_agent) {
@@ -2402,7 +2413,8 @@ bool MQTTBridge::buildTopicForSlot(int index, MQTTMessageType type, char* topic_
       static_cast<int>(MSG_STATUS) == MQTT_PUBLICATION_STATUS &&
       static_cast<int>(MSG_PACKETS) == MQTT_PUBLICATION_PACKETS &&
       static_cast<int>(MSG_RAW) == MQTT_PUBLICATION_RAW &&
-      static_cast<int>(MSG_NEIGHBORS) == MQTT_PUBLICATION_NEIGHBORS,
+      static_cast<int>(MSG_NEIGHBORS) == MQTT_PUBLICATION_NEIGHBORS &&
+      static_cast<int>(MSG_FILTER) == MQTT_PUBLICATION_FILTER,
       "topic router enum drift");
 
   if (!mqttTopicSlotIndexValid(index, RUNTIME_MQTT_SLOTS)) return false;
@@ -3654,6 +3666,42 @@ bool MQTTBridge::publishNeighbors() {
         // at QoS 0 to avoid the QoS 1 outbox, retaining where the broker allows.
         bool use_retain = _slots[i].preset ? _slots[i].preset->allow_retain : false;
         if (publishToSlot(i, topic, _neighbors_json_buffer, _neighbors_publish_len, use_retain, 0)) {
+          published = true;
+        }
+      }
+    }
+  }
+  return published;
+}
+
+void MQTTBridge::requestPublishFilterStats(const char* json, size_t len) {
+  if (!json || len == 0) return;
+  // Drop a new snapshot while one is still in flight (Core 0 clears the flag).
+  if (_filter_publish_pending.load(std::memory_order_acquire)) return;
+  if (len >= FILTER_JSON_BUFFER_SIZE) {
+    len = FILTER_JSON_BUFFER_SIZE - 1;
+  }
+  memcpy(_filter_json_buffer, json, len);
+  _filter_json_buffer[len] = '\0';
+  _filter_publish_len = len;
+  _filter_publish_pending.store(true, std::memory_order_release);
+}
+
+bool MQTTBridge::publishFilterStats() {
+  if (_filter_publish_len == 0) return false;
+  if (!_cached_has_connected_slots) return false;
+
+  refreshOriginFromPrefs();
+
+  bool published = false;
+  char topic[128];
+  for (int i = 0; i < RUNTIME_MQTT_SLOTS; i++) {
+    if (_slots[i].enabled && _slots[i].client && _slots[i].connected) {
+      if (buildTopicForSlot(i, MSG_FILTER, topic, sizeof(topic))) {
+        // Periodic snapshot: QoS 0, retained where the broker allows, matching
+        // the status/neighbors publish policy.
+        bool use_retain = _slots[i].preset ? _slots[i].preset->allow_retain : false;
+        if (publishToSlot(i, topic, _filter_json_buffer, _filter_publish_len, use_retain, 0)) {
           published = true;
         }
       }

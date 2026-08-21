@@ -109,6 +109,10 @@ static inline void applyMQTTDefaults(MQTTPrefs* prefs) {
   // (not 0) so an in-lineage upgrade from a pre-neighbors payload is sane.
   prefs->mqtt_neighbors_enabled = 0;
   prefs->mqtt_neighbors_interval = MQTT_NEIGHBORS_DEFAULT_INTERVAL_MS;
+
+  // Packet-filter drop statistics publish at this interval; the default is a
+  // valid 60s (not 0/off) so a defaulted tail keeps an in-lineage upgrade sane.
+  prefs->mqtt_filter_interval = MQTT_FILTER_STATS_DEFAULT_INTERVAL_MS;
 }
 
 #endif // WITH_MQTT_BRIDGE

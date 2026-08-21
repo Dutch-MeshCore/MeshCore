@@ -20,8 +20,51 @@
  * `date` strings in UTC (gmtime) so they stay aligned with meshcoretomqtt serial
  * regex fields.
  */
+// Plain snapshot of the packet-filter drop counters + config. The repeater owns
+// the Filter/FilterStats types and populates this; keeping the view a POD lets
+// this builder stay in the src/helpers layer without depending on the example.
+struct MQTTFilterStatsView {
+  static const int TYPE_COUNT = 12;
+  const char* origin = nullptr;
+  const char* origin_id = nullptr;
+  const char* timestamp = nullptr;
+  uint32_t uptime_secs = 0;
+  uint16_t boot_id = 0;
+  bool enabled = false;
+
+  uint32_t hops[TYPE_COUNT] = {};        // per-type hop-limit drops
+  uint32_t rate[TYPE_COUNT] = {};        // per-type rate-limit drops
+  uint32_t channel_total = 0;
+  uint32_t hash_total = 0;
+  uint32_t malformed_total = 0;
+  uint32_t hash_size[4] = {};            // drops by path-hash size 1B..4B
+  uint32_t malformed_reason[4] = {};     // short/time/empty/utf8
+
+  // per-type rate/hop configuration (so an analyzer can read drops in context)
+  uint16_t cfg_limit[TYPE_COUNT] = {};
+  uint32_t cfg_secs[TYPE_COUNT] = {};
+  uint16_t cfg_soft[TYPE_COUNT] = {};
+  uint8_t  cfg_hops_max[TYPE_COUNT] = {};
+
+  struct Channel { uint8_t hash; const char* name; uint32_t drops; };
+  Channel channels[16] = {};
+  int channel_count = 0;
+
+  struct Src { uint8_t hash; uint32_t drops; };
+  Src top_sources[8] = {};
+  int top_count = 0;
+
+  struct HashType { uint8_t type; uint32_t drops; };
+  HashType hash_top_types[3] = {};
+  int hash_top_count = 0;
+};
+
 class MQTTMessageBuilder {
 public:
+  // Build the packet-filter drop-statistics JSON (see MSG_FILTER topic).
+  static int buildFilterStatsMessage(JsonDocument& doc, const MQTTFilterStatsView& v,
+                                     char* buffer, size_t buffer_size);
+
   // Wire-format scratch sizing and validation live in the pure, host-tested
   // MQTTWireScratch; these are the firmware-facing aliases.
   static const size_t WIRE_SCRATCH_SIZE = MQTTWireScratch::kWireBytes;

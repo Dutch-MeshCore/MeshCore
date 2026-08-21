@@ -5,6 +5,9 @@
 #if defined(WITH_MQTT_NEIGHBORS)
 #include <helpers/MQTTConnectionPolicy.h>  // kSyncedClockEpoch
 #endif
+#ifdef WITH_MQTT_BRIDGE
+#include <helpers/MQTTMessageBuilder.h>    // buildFilterStatsMessage + MQTTFilterStatsView
+#endif
 
 /* ------------------------------ Config -------------------------------- */
 
@@ -1690,6 +1693,90 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
   }
 }
 
+#ifdef WITH_MQTT_BRIDGE
+// Periodically snapshot the packet-filter drop counters + config and hand the
+// JSON to the bridge for publishing on the MSG_FILTER topic. Runs on the mesh
+// task; the bridge marshals the actual publish to the MQTT task.
+void MyMesh::publishFilterStatsIfDue(uint32_t now) {
+  if (!bridge) return;
+  uint32_t interval = _cli.getObserverPrefs()->mqtt_filter_interval;
+  if (interval == 0) { next_filter_publish = 0; return; }  // publishing disabled
+  if (next_filter_publish != 0 && !millisHasNowPassed(next_filter_publish)) return;
+  next_filter_publish = futureMillis(interval);
+
+  const Counters& c = _filter.getCounters();
+  const FilterPrefs& p = _filter.getPrefs();
+
+  MQTTFilterStatsView v;
+  v.enabled = _filter.isEnabled();
+  v.channel_total = c.channel;
+  v.hash_total = c.hash;
+  v.malformed_total = c.malformed;
+  for (int i = 0; i < MQTTFilterStatsView::TYPE_COUNT; i++) {
+    v.hops[i] = c.hops[i];
+    v.rate[i] = c.rate[i];
+    v.cfg_limit[i] = p.payload_prefs[i].rate_limit;
+    v.cfg_secs[i] = p.payload_prefs[i].rate_secs;
+    v.cfg_soft[i] = p.soft_limit[i];
+    v.cfg_hops_max[i] = p.payload_prefs[i].hops_max;
+  }
+  for (int j = 0; j < 4; j++) {
+    v.hash_size[j] = c.hash_size[j];
+    v.malformed_reason[j] = c.malformed_reason[j];
+  }
+
+  int nch = 0;
+  for (int i = 0; i < FILTER_CHANNEL_COUNT && nch < 16; i++) {
+    if (p.filter_channels[i].name[0] == '\0') continue;
+    v.channels[nch].hash = p.filter_channels[i].channel.hash[0];
+    v.channels[nch].name = p.filter_channels[i].name;
+    v.channels[nch].drops = c.channel_slot[i];
+    nch++;
+  }
+  v.channel_count = nch;
+
+  FilterStat::TopEntry top[8];
+  int nt = FilterStat::topSrc(c, top, 8);
+  for (int i = 0; i < nt; i++) {
+    v.top_sources[i].hash = top[i].hash;
+    v.top_sources[i].drops = top[i].count;
+  }
+  v.top_count = nt;
+
+  uint8_t hidx[3];
+  uint32_t hval[3];
+  int nh = FilterStat::topIndices(c.hash_type, PAYLOAD_TYPE_COUNT, 3, hidx, hval);
+  for (int i = 0; i < nh; i++) {
+    v.hash_top_types[i].type = hidx[i];
+    v.hash_top_types[i].drops = hval[i];
+  }
+  v.hash_top_count = nh;
+
+  char origin[32];
+  MQTTBridge::getEffectiveMqttOrigin(&_prefs, _cli.getObserverPrefs(), origin, sizeof(origin));
+  char self_pubkey_hex[65];
+  mesh::Utils::toHex(self_pubkey_hex, self_id.pub_key, PUB_KEY_SIZE);
+  char timestamp[40];
+  MQTTMessageBuilder::formatIsoTimestampForMqtt(
+    getRTCClock()->getCurrentTime(), 0, nullptr, timestamp, sizeof(timestamp));
+  v.origin = origin;
+  v.origin_id = self_pubkey_hex;
+  v.timestamp = timestamp;
+  v.uptime_secs = (uint32_t)(uptime_millis / 1000);
+
+  // Per-boot id so an analyzer can tell a counter reset (reboot / clear stats)
+  // from a genuine drop in the rate. Seeded once from the boot-time wall clock.
+  static uint16_t s_boot_id = 0;
+  if (s_boot_id == 0) s_boot_id = (uint16_t)((getRTCClock()->getCurrentTime() & 0xFFFF) | 1);
+  v.boot_id = s_boot_id;
+
+  static char json_buf[MQTTBridge::FILTER_JSON_BUFFER_SIZE];  // mesh task only
+  JsonDocument doc;
+  int len = MQTTMessageBuilder::buildFilterStatsMessage(doc, v, json_buf, sizeof(json_buf));
+  if (len > 0) bridge->requestPublishFilterStats(json_buf, (size_t)len);
+}
+#endif
+
 void MyMesh::loop() {
   // Check radio FIRST to ensure we don't miss incoming packets
   // MQTT processing runs in a separate FreeRTOS task on Core 0, so we don't call bridge.loop() here
@@ -1783,6 +1870,7 @@ void MyMesh::loop() {
 
 #ifdef WITH_MQTT_BRIDGE
   _alerter.onLoop(now);
+  publishFilterStatsIfDue(now);
 #endif
 
 #if defined(WITH_MQTT_NEIGHBORS)

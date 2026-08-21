@@ -39,6 +39,7 @@ struct DecodePlan {
 static const size_t kV1PreObserverPayloadSize = MQTT_PREFS_V1_PRE_OBSERVER_PAYLOAD_SIZE;
 static const size_t kV1PreNeighborsPayloadSize = MQTT_PREFS_V1_PRE_NEIGHBORS_PAYLOAD_SIZE;
 static const size_t kV1PreFilterPayloadSize = MQTT_PREFS_V1_PRE_FILTER_PAYLOAD_SIZE;
+static const size_t kV1PreFilterStatsPayloadSize = MQTT_PREFS_V1_PRE_FILTERSTATS_PAYLOAD_SIZE;
 static const size_t kV1BaselinePayloadSize = MQTT_PREFS_V1_FULL_PAYLOAD_SIZE;
 static const size_t kEncodedSize = sizeof(MQTTPrefsHeader) + kV1BaselinePayloadSize;
 
@@ -54,10 +55,17 @@ static const size_t kEncodedSize = sizeof(MQTTPrefsHeader) + kV1BaselinePayloadS
 // Touching any filter opts that node into the longer payload — a deliberate,
 // operator-initiated trade rather than a side effect of upgrading.
 inline size_t payloadLenFor(const MQTTPrefs& prefs) {
-  return MQTTPacketFilter::allMasksDefault(prefs.mqtt_slot_packet_filter,
-                                           MQTT_PREFS_SLOT_COUNT)
-      ? kV1PreFilterPayloadSize
-      : kV1BaselinePayloadSize;
+  // The tail is contiguous, so writing a later field forces every earlier
+  // optional field to be written too. Emit the shortest length that still
+  // round-trips: a non-default filter-stats interval needs FULL; otherwise a
+  // non-default mask needs PRE_FILTERSTATS; otherwise PRE_FILTER.
+  const bool masks_default = MQTTPacketFilter::allMasksDefault(
+      prefs.mqtt_slot_packet_filter, MQTT_PREFS_SLOT_COUNT);
+  const bool interval_default =
+      (prefs.mqtt_filter_interval == MQTT_FILTER_STATS_DEFAULT_INTERVAL_MS);
+  if (!interval_default) return kV1BaselinePayloadSize;
+  if (!masks_default) return kV1PreFilterStatsPayloadSize;
+  return kV1PreFilterPayloadSize;
 }
 
 inline MQTTPrefsHeader makeHeader(size_t payload_len) {
@@ -137,6 +145,11 @@ inline DecodePlan classify(const uint8_t* prefix, size_t prefix_read, size_t fil
       }
       if (header.payload_len == kV1BaselinePayloadSize) {
         return {Source::Current, false, false, true, kV1BaselinePayloadSize};
+      }
+      if (header.payload_len == kV1PreFilterStatsPayloadSize) {
+        // Written before the filter-stats interval tail. The masks ARE present;
+        // only the interval is missing, so it keeps its default (60s).
+        return {Source::Current, false, false, true, kV1PreFilterStatsPayloadSize};
       }
       if (header.payload_len == kV1PreFilterPayloadSize) {
         // Written before the per-slot packet-filter tail. Defaults supply an

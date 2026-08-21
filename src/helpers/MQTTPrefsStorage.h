@@ -122,6 +122,11 @@ struct MQTTPrefs {
   // for both packets and raw MQTT topics. Appended so older v1 payloads load
   // with the default all-types masks intact.
   uint16_t mqtt_slot_packet_filter[MQTT_PREFS_SLOT_COUNT];
+
+  // Publish interval (ms) for the packet-filter drop statistics topic. Appended
+  // after the filter masks so older v1 payloads load with the default; 0
+  // disables the filter-stats topic.
+  uint32_t mqtt_filter_interval;
 };
 
 // Neighbor discovery is scheduled with the wrap-safe millis() helpers, whose
@@ -134,7 +139,14 @@ static const uint32_t MQTT_NEIGHBORS_MIN_INTERVAL_MS = MQTT_NEIGHBORS_MIN_INTERV
 static const uint32_t MQTT_NEIGHBORS_MAX_INTERVAL_MS = MQTT_NEIGHBORS_MAX_INTERVAL_HOURS * 3600000UL;
 static const uint32_t MQTT_NEIGHBORS_DEFAULT_INTERVAL_MS = MQTT_NEIGHBORS_DEFAULT_INTERVAL_HOURS * 3600000UL;
 
-// Version-1 has four payload layouts this firmware can decode. Never infer a
+// Filter-stats publish interval bounds, scheduled with the same wrap-safe
+// millis() helpers (kept below INT32_MAX ms). 0 is a valid value meaning off;
+// any non-zero value is clamped into [MIN, MAX].
+static const uint32_t MQTT_FILTER_STATS_MIN_INTERVAL_MS = 60000;      // 60s
+static const uint32_t MQTT_FILTER_STATS_MAX_INTERVAL_MS = 600000;     // 10min
+static const uint32_t MQTT_FILTER_STATS_DEFAULT_INTERVAL_MS = 60000;  // 60s
+
+// Version-1 has five payload layouts this firmware can decode. Never infer a
 // compatible payload from an arbitrary SHORTER size: raw prefs have no
 // checksum, so a short length has to match a boundary that was really shipped.
 //
@@ -143,19 +155,22 @@ static const uint32_t MQTT_NEIGHBORS_DEFAULT_INTERVAL_MS = MQTT_NEIGHBORS_DEFAUL
 // binary's exact baseline. classify() reads that prefix and ignores the tail
 // rather than rejecting the file — see the downgrade contract there. Any change
 // that is not a pure append MUST bump MQTT_PREFS_VERSION instead.
-//   - PRE_OBSERVER  (2736): stops before the observer tail (snmp_*/alert_*).
-//   - PRE_NEIGHBORS (2860): full observer tail, no neighbors fields yet.
-//   - PRE_FILTER    (2864): neighbors tail, no per-slot packet filters.
-//   - FULL          (2876): current baseline, with six uint16_t filter masks.
+//   - PRE_OBSERVER   (2736): stops before the observer tail (snmp_*/alert_*).
+//   - PRE_NEIGHBORS  (2860): full observer tail, no neighbors fields yet.
+//   - PRE_FILTER     (2864): neighbors tail, no per-slot packet filters.
+//   - PRE_FILTERSTATS(2876): six uint16_t filter masks, no filter-stats interval.
+//   - FULL           (2880): current baseline, with the filter-stats interval.
 //
 // FULL is the maximum written, not the default: MQTTPrefsCodec::payloadLenFor()
-// keeps emitting PRE_FILTER while every slot holds the all-types default, so a
-// node that never touches a filter stays readable by pre-filter firmware. See
-// the rollback note there — /mqtt_prefs also carries the WiFi credentials.
+// keeps emitting the shortest round-tripping payload (PRE_FILTER while every
+// slot holds the all-types default and the filter-stats interval is default),
+// so a node that never touches those stays readable by older firmware. See the
+// rollback note there — /mqtt_prefs also carries the WiFi credentials.
 static const size_t MQTT_PREFS_V1_PRE_OBSERVER_PAYLOAD_SIZE = 2736;
 static const size_t MQTT_PREFS_V1_PRE_NEIGHBORS_PAYLOAD_SIZE = 2860;
 static const size_t MQTT_PREFS_V1_PRE_FILTER_PAYLOAD_SIZE = 2864;
-static const size_t MQTT_PREFS_V1_FULL_PAYLOAD_SIZE = 2876;
+static const size_t MQTT_PREFS_V1_PRE_FILTERSTATS_PAYLOAD_SIZE = 2876;
+static const size_t MQTT_PREFS_V1_FULL_PAYLOAD_SIZE = 2880;
 
 // /mqtt_prefs starts with a self-describing 8-byte header. Headerless files
 // are deployed legacy layouts and continue to be distinguished by size.
@@ -287,6 +302,8 @@ static_assert(offsetof(MQTTPrefs, mqtt_neighbors_interval) == MQTT_PREFS_V1_PRE_
               "neighbors interval offset must equal the pre-neighbors payload size");
 static_assert(offsetof(MQTTPrefs, mqtt_slot_packet_filter) == MQTT_PREFS_V1_PRE_FILTER_PAYLOAD_SIZE,
               "packet filters must begin at the pre-filter payload boundary");
+static_assert(offsetof(MQTTPrefs, mqtt_filter_interval) == MQTT_PREFS_V1_PRE_FILTERSTATS_PAYLOAD_SIZE,
+              "filter-stats interval must begin at the pre-filterstats payload boundary");
 static_assert(sizeof(OldMQTTPrefs) == 472, "frozen pre-slot /mqtt_prefs layout changed");
 static_assert(sizeof(PreWifiPowerOldMQTTPrefs) == 472, "frozen pre-WiFi-power /mqtt_prefs layout changed");
 static_assert(offsetof(OldMQTTPrefs, wifi_power_save) == 144,

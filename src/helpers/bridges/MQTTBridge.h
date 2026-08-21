@@ -75,6 +75,9 @@ public:
   // Max NTP servers in a try-list: 1 custom primary + the built-in fallbacks.
   static const int kMaxNtpServers = 6;
 
+  // Filter-stats JSON buffer size, shared with the mesh task that builds it.
+  static const size_t FILTER_JSON_BUFFER_SIZE = 2048;
+
 private:
   static const size_t AUTH_TOKEN_SIZE = 768;
 
@@ -404,7 +407,7 @@ private:
   mesh::MillisecondClock* _ms;    // For uptime
 
   // Topic building
-  enum MQTTMessageType { MSG_STATUS, MSG_PACKETS, MSG_RAW, MSG_NEIGHBORS };
+  enum MQTTMessageType { MSG_STATUS, MSG_PACKETS, MSG_RAW, MSG_NEIGHBORS, MSG_FILTER };
   bool buildTopicForSlot(int index, MQTTMessageType type, char* topic_buf, size_t buf_size);
   bool substituteTopicTemplate(const char* tmpl, MQTTMessageType type, int slot_index, char* buf, size_t buf_size);
   uint8_t eligiblePacketSlots(uint8_t packet_type, MQTTMessageType type);
@@ -464,6 +467,10 @@ private:
   // Publishes the pending _neighbors_json_buffer to every connected slot's
   // neighbors topic. Runs on the MQTT task (Core 0) only.
   bool publishNeighbors();
+
+  // Publishes the pending _filter_json_buffer to every connected slot's filter
+  // topic. Runs on the MQTT task (Core 0) only.
+  bool publishFilterStats();
 #endif
   void queuePacket(mesh::Packet* packet, bool is_tx);
   void dequeuePacket();
@@ -511,6 +518,13 @@ private:
 
   // Observer config (MQTT/WiFi/timezone/SNMP/alert), persisted to /mqtt_prefs.
   // _prefs (held by BridgeBase) still provides upstream fields (freq/sf/node_name…).
+  // Filter-stats publishing. The JSON is small, so a fixed static buffer (no
+  // PSRAM) is handed from the mesh task via requestPublishFilterStats() and
+  // drained on the MQTT task, mirroring the neighbors handoff.
+  char _filter_json_buffer[FILTER_JSON_BUFFER_SIZE] = {};
+  size_t _filter_publish_len = 0;
+  std::atomic<bool> _filter_publish_pending{false};
+
   MQTTPrefs* _obs = nullptr;
 
 public:
@@ -596,6 +610,10 @@ public:
   // publish-pending flag for the MQTT task; a request is dropped if one is
   // already in flight or the buffer is unavailable.
   void requestPublishNeighbors(const char* json, size_t len);
+
+  // Filter-stats analog of requestPublishNeighbors: the mesh task hands over the
+  // built JSON, the MQTT task publishes it to every slot's filter topic.
+  void requestPublishFilterStats(const char* json, size_t len);
 
   // Periodic-neighbors schedule, reported by the mesh loop for `get mqtt.status`.
   // The mesh owns the timer; the bridge only caches the summary so the wrap-safe

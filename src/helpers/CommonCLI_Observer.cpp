@@ -267,6 +267,25 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
     } else {
       strcpy(reply, "Error: interval must be between 1-60 minutes");
     }
+  } else if (memcmp(config, "mqtt.filter.interval ", 21) == 0) {
+    // Seconds in, milliseconds stored. 0 disables the filter-stats topic;
+    // otherwise the value is clamped into the 60s-10min band.
+    uint32_t secs = _atoi(&config[21]);
+    if (secs == 0) {
+      _mqtt_prefs.mqtt_filter_interval = 0;
+      savePrefs();
+      _callbacks->restartBridge();
+      strcpy(reply, "OK - filter stats publishing disabled, bridge restarted");
+    } else {
+      uint32_t ms = secs * 1000UL;
+      if (ms < MQTT_FILTER_STATS_MIN_INTERVAL_MS) ms = MQTT_FILTER_STATS_MIN_INTERVAL_MS;
+      if (ms > MQTT_FILTER_STATS_MAX_INTERVAL_MS) ms = MQTT_FILTER_STATS_MAX_INTERVAL_MS;
+      _mqtt_prefs.mqtt_filter_interval = ms;
+      savePrefs();
+      _callbacks->restartBridge();
+      sprintf(reply, "OK - filter interval set to %lu s (%lu ms), bridge restarted",
+              (unsigned long)(ms / 1000), (unsigned long)ms);
+    }
 #if defined(WITH_MQTT_NEIGHBORS)
   } else if (memcmp(config, "mqtt.neighbors.interval ", 24) == 0) {
     // Hours in, milliseconds stored. The 12-336h band keeps the interval under
@@ -826,6 +845,14 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
   } else if (memcmp(config, "mqtt.interval", 13) == 0) {
     uint32_t minutes = (_mqtt_prefs.mqtt_status_interval + 29999) / 60000;
     sprintf(reply, "> %u minutes (%lu ms)", minutes, (unsigned long)_mqtt_prefs.mqtt_status_interval);
+  } else if (memcmp(config, "mqtt.filter.interval", 20) == 0) {
+    if (_mqtt_prefs.mqtt_filter_interval == 0) {
+      strcpy(reply, "> off");
+    } else {
+      sprintf(reply, "> %lu s (%lu ms)",
+              (unsigned long)(_mqtt_prefs.mqtt_filter_interval / 1000),
+              (unsigned long)_mqtt_prefs.mqtt_filter_interval);
+    }
 #if defined(WITH_MQTT_NEIGHBORS)
   // Longer token first: a bare "mqtt.neighbors" (14) would otherwise swallow
   // "mqtt.neighbors.interval" since the GET tokens carry no trailing space.
