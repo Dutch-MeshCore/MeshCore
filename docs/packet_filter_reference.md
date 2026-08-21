@@ -33,8 +33,8 @@ that setting actually dropped. See [Statistics](#statistics).
 | `filter count` | Hop and rate drops per packet type |
 | `filter hops` | Current hop limits |
 | `filter hops <type> <max_hops>` | Set a hop limit |
-| `filter rate` | Current rate limits |
-| `filter rate <type> <limit> <secs>` | Set a rate limit |
+| `filter rate` | Current rate limits (incl. soft cutoff) |
+| `filter rate <type> <limit> <secs> [soft]` | Set a rate limit (optional soft cutoff) |
 | `filter channel list` | Blocked channels |
 | `filter channel add` / `filter channel remove` | Block or unblock a channel |
 | `filter hash` | Current minimum path hash size |
@@ -175,25 +175,27 @@ Display current configuration:
 
 ```text
 filter rate
-[TYPE: LIMIT,SECS]
-00: 5,60
-01: 5,60
-02: 20,60
-03: 5,60
-04: 10,60
-05: 20,60
-06: 5,60
-07: 5,60
-08: 5,60
-09: 5,60
-10: 5,60
-11: 5,60
+[TYPE: LIMIT,SECS,SOFT]
+00: 5,60,0
+01: 5,60,0
+02: 20,60,0
+03: 5,60,0
+04: 10,60,0
+05: 20,60,0
+06: 5,60,0
+07: 5,60,0
+08: 5,60,0
+09: 5,60,0
+10: 5,60,0
+11: 5,60,0
 ```
+
+The third column is the **soft cutoff** (see below); `0` means it is off.
 
 Configure a rate limit:
 
 ```text
-filter rate <type> <limit> <seconds>
+filter rate <type> <limit> <seconds> [soft]
 ```
 
 Example:
@@ -208,6 +210,26 @@ The drops this limit caused are reported by `filter stats rate`.
 This allows up to **20 Group Text packets every 60 seconds**.
 
 Setting the limit to **0** disables rate limiting for that packet type.
+
+## Soft cutoff
+
+By default a rate limit is a hard cutoff: once a type reaches its limit inside
+the window, every further packet of that type is dropped until the window rolls.
+That closes the door abruptly and takes legitimate traffic down with the abuse.
+
+The optional `[soft]` argument turns the drop into a gradual ramp. Below `soft`
+every packet is forwarded; between `soft` and the hard `limit` the forward
+probability falls linearly to zero; at or above `limit` nothing is forwarded.
+
+```text
+filter rate 05 20 60 15
+> Filter: OK
+```
+
+Group Text now forwards normally up to 15 per minute, then tapers off, reaching
+a full stop at 20. `soft` must be **less than** `limit`; `0` (the default) keeps
+the hard cutoff. The setting is per packet type and is stored in `/filter_prefs`
+like the rest of the rate configuration.
 
 Default limits:
 

@@ -7,6 +7,7 @@
 #include <helpers/TxtDataHelpers.h>
 
 #include "FilterStats.h"
+#include "Limiter.h"
 
 #define FILTER_PREFS_FILE    "/filter_prefs"
 
@@ -51,32 +52,9 @@ struct FilterPrefs {
   ChannelDetails filter_channels[FILTER_CHANNEL_COUNT];
   uint8_t minimal_hash_bytes = 1;
   uint8_t filter_malformed = false;
-};
-
-class Limiter {
-  uint32_t _start;
-  uint32_t _secs;
-  uint16_t _limit, _count;
-
-public:
-  Limiter() : _limit(0), _secs(0), _start(0), _count(0) {}
-
-  void init(uint16_t limit, uint32_t secs) {
-    _limit = limit;
-    _secs = secs;
-    _start = _count = 0;
-  }
-
-  bool allow(uint32_t now) {
-    if (!_limit) return true;
-    if (now < _start + _secs) {
-      if (++_count > _limit) return false;
-    } else {
-      _start = now;
-      _count = 1;
-    }
-    return true;
-  }
+  // Appended at the end of the struct so older /filter_prefs files (which lack
+  // these bytes) still load: a short read leaves them at 0 = soft cutoff off.
+  uint16_t soft_limit[PAYLOAD_TYPE_COUNT] = {};
 };
 
 class Filter {
@@ -85,6 +63,18 @@ class Filter {
   FilterPrefs _prefs;
   Limiter _limiters[PAYLOAD_TYPE_COUNT];
   Counters _cnt;
+  uint32_t _rng_state;
+
+  // xorshift32: cheap, dependency-free source of a random byte for the soft
+  // cutoff. State is never allowed to reach 0 (that would freeze the sequence).
+  uint8_t nextRandom() {
+    uint32_t x = _rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    _rng_state = x ? x : 0xA5A5F00D;
+    return (uint8_t)(_rng_state >> 24);
+  }
 
 public:
   enum ResponseType {
@@ -92,7 +82,7 @@ public:
       RATE
   };
 
-  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc) {}
+  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc), _rng_state(0xA5A5F00D) {}
   void resetPrefs(void) { _prefs = FilterPrefs(); }
   void resetStats(void) { _cnt.reset(); }
   bool allowPacketForward(const mesh::Packet *packet);

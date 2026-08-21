@@ -270,12 +270,13 @@ filter stats hops
 ### Rate limits
 **Usage:**
 - `filter rate` — show the current limits
-- `filter rate <type> <limit> <seconds>`
+- `filter rate <type> <limit> <seconds> [soft]`
 
 **Parameters:**
 - `type`: Packet type ID, `00`–`11`.
 - `limit`: Packets allowed per window; `0` disables rate limiting for that type.
 - `seconds`: Length of the window.
+- `soft` (optional): Soft cutoff. Above this count the packet is forwarded with a probability that ramps linearly to zero at `limit`, instead of a hard drop. Must be less than `limit`; `0` (default) keeps the hard cutoff.
 
 **Note:** Rate limits apply per packet type, not per sender. The drops are reported by `filter stats rate`.
 

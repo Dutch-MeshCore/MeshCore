@@ -39,8 +39,8 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
       if (have_src) FilterStat::recordSrc(_cnt, src);
       return false;
     }
-    // rate limiter
-    if (!_limiters[type].allow(_rtc->getCurrentTime())) {
+    // rate limiter (with optional probabilistic soft cutoff)
+    if (!_limiters[type].allow(_rtc->getCurrentTime(), nextRandom())) {
       FilterStat::recordRate(_cnt, type);
       if (have_src) FilterStat::recordSrc(_cnt, src);
       return false;
@@ -218,22 +218,26 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
     // rate
     } else if (strcmp(parts[1], "rate") == 0) {
 
-      if (n == 5) {
+      if (n == 5 || n == 6) {
         uint8_t type = atoi(parts[2]);
         uint16_t limit = atoi(parts[3]);
         uint32_t secs = atoi(parts[4]);
+        uint16_t soft = (n == 6) ? atoi(parts[5]) : 0;   // omitted -> hard cutoff
 
         if (type < 0 || type >= PAYLOAD_TYPE_COUNT) {
           strcpy(reply, "> Filter: error <type> range is 0-11");
+        } else if (soft != 0 && soft >= limit) {
+          strcpy(reply, "> Filter: error <soft> must be less than <limit>");
         } else {
           _prefs.payload_prefs[type].rate_limit = limit;
           _prefs.payload_prefs[type].rate_secs = secs;
-          _limiters[type].init(limit, secs);
+          _prefs.soft_limit[type] = soft;
+          _limiters[type].init(limit, secs, soft);
           save(fs);
           strcpy(reply, "> Filter: OK");
         }
       } else {
-        strcpy(reply, "> Filter: syntax error 'filter rate <type> <limit> <secs>'");
+        strcpy(reply, "> Filter: syntax error 'filter rate <type> <limit> <secs> [soft]'");
       }
 
     // channel
@@ -290,16 +294,17 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
 void Filter::formatResponse(char *reply, ResponseType rtype) {
   FilterStat::Buf b(reply, FILTER_REPLY_SIZE);
 
-  b.add(rtype == ResponseType::HOPS ? "[TYPE: MAX_HOPS]" : "[TYPE: LIMIT,SECS]");
+  b.add(rtype == ResponseType::HOPS ? "[TYPE: MAX_HOPS]" : "[TYPE: LIMIT,SECS,SOFT]");
 
   for (uint8_t i = 0; i < PAYLOAD_TYPE_COUNT; ++i) {
     if (rtype == ResponseType::HOPS) {
       b.add("\n%02u: %u", (unsigned)i, (unsigned)_prefs.payload_prefs[i].hops_max);
     } else {
-      b.add("\n%02u: %u,%lu",
+      b.add("\n%02u: %u,%lu,%u",
             (unsigned)i,
             (unsigned)_prefs.payload_prefs[i].rate_limit,
-            (unsigned long)_prefs.payload_prefs[i].rate_secs);
+            (unsigned long)_prefs.payload_prefs[i].rate_secs,
+            (unsigned)_prefs.soft_limit[i]);
     }
   }
   b.markTruncated("..");
@@ -459,6 +464,9 @@ bool Filter::isValidUTF8(const uint8_t* data, uint8_t len) {
 }
 
 bool Filter::load(FILESYSTEM* fs) {
+  // mix the clock into the PRNG so devices don't drop the same packets in lockstep
+  _rng_state ^= (_rtc->getCurrentTime() << 1) | 1u;
+
   if (fs == nullptr || !fs->exists(FILTER_PREFS_FILE)) return true;
 
 #if defined(RP2040_PLATFORM)
@@ -469,13 +477,19 @@ bool Filter::load(FILESYSTEM* fs) {
 
   if (!file) return false;
 
-  file.read(reinterpret_cast<uint8_t*>(&_prefs), sizeof(_prefs));
+  size_t got = file.read(reinterpret_cast<uint8_t*>(&_prefs), sizeof(_prefs));
+
+  // Pre-soft-cutoff files are shorter: the trailing soft_limit[] bytes weren't
+  // written, so discard whatever landed there (padding) and default them off.
+  if (got < sizeof(_prefs)) memset(_prefs.soft_limit, 0, sizeof(_prefs.soft_limit));
 
   _prefs.filter_enabled = constrain(_prefs.filter_enabled, 0, 1);
 
   for (uint8_t i = 0; i < PAYLOAD_TYPE_COUNT; ++i) {
     _prefs.payload_prefs[i].hops_max = constrain(_prefs.payload_prefs[i].hops_max, 0, 64);
-    _limiters[i].init(_prefs.payload_prefs[i].rate_limit, _prefs.payload_prefs[i].rate_secs);
+    // a soft cutoff at/above the hard limit leaves no ramp room -> treat as off
+    if (_prefs.soft_limit[i] >= _prefs.payload_prefs[i].rate_limit) _prefs.soft_limit[i] = 0;
+    _limiters[i].init(_prefs.payload_prefs[i].rate_limit, _prefs.payload_prefs[i].rate_secs, _prefs.soft_limit[i]);
   }
   _prefs.minimal_hash_bytes = constrain(_prefs.minimal_hash_bytes, 1, 3);
   _prefs.filter_malformed = constrain(_prefs.filter_malformed, 0, 1);
