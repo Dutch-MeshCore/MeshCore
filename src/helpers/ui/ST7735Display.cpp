@@ -466,7 +466,7 @@ bool ST7735Display::begin() {
 
     _height = 80;
     _width = 160;
-#if defined(HELTEC_LORA_V3)  // Tracker v1
+#if defined(HELTEC_LORA_V3) || defined(HELTEC_TRACKER_V1_1)  // Tracker v1 / v1.1 (same ST7735 panel)
     _colstart = 26;
     _rowstart = 1;
 #else
@@ -498,7 +498,7 @@ void ST7735Display::_resetAndInit() {
     displayInit(Rcmd2green160x80);
     //uint8_t madctl = ST77XX_MADCTL_MY | ST77XX_MADCTL_MV |ST7735_MADCTL_BGR;//Adjust color to BGR
     //display.sendCommand(ST77XX_MADCTL, &madctl, 1);
-#elif defined(HELTEC_LORA_V3)  // Tracker v1
+#elif defined(HELTEC_LORA_V3) || defined(HELTEC_TRACKER_V1_1)  // Tracker v1 / v1.1 (same ST7735 panel)
     displayInit(Rcmd2invert);   // invert RGB
 #endif
     displayInit(Rcmd3);
