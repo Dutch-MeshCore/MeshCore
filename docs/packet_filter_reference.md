@@ -528,14 +528,48 @@ counter set plus the per-type configuration is sent uncut.
 The message carries: an identity envelope (`origin`, `origin_id`, `timestamp`,
 `uptime_secs`, `boot_id`, `enabled`); `totals` per reason; per-type `hops` and
 `rate` drops (non-zero types only); the `hash` size split and top blocked types;
-`malformed` reasons; per-channel `channels`; the worst `top_sources`; and a
-`config` block with each type's `limit`/`secs`/`soft`/`hops_max`.
+`malformed` reasons; per-channel `channels`; the worst `top_sources`; a
+`config` block with each type's `limit`/`secs`/`soft`/`hops_max`; and a
+`region_gate` block with the live duty-cycle region-gating state.
 
 Because the counters are cumulative and saturate, an analyzer derives drop
 **rates** by differencing consecutive samples, and uses `boot_id`/`uptime_secs`
 to detect a reboot (counter reset) and rebaseline. The `config.soft` vs
 `config.limit` pair distinguishes the probabilistic soft cutoff (graceful
 shaping) from a hard block.
+
+### region_gate
+
+The current state of duty-cycle **region gating** (see
+[Duty-cycle region gating](cli_commands.md#duty-cycle-region-gating) and
+`get dc.gate.status` in the CLI docs).
+Unlike the drop counters this is instantaneous state, not a cumulative counter,
+so it is read directly each sample:
+
+```json
+"region_gate": {
+  "enabled": true,
+  "duty": 74,
+  "level": 2,
+  "max_level": 4,
+  "threshold": 70,
+  "hysteresis": 10
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `enabled` | Whether the feature is switched on (`set dc.gate 1`). |
+| `duty` | Live TX duty cycle, 0–100 % of the permitted airtime budget. |
+| `level` | Outer region layers currently gated: `0` = none, `1` = wildcard `*`, higher = broader named regions inward. Always protects the innermost cluster and the home region. |
+| `max_level` | Highest gate level this repeater's region hierarchy allows (`0` when it has no named regions and thus never gates). |
+| `threshold` | Config: start gating when `duty` exceeds this. |
+| `hysteresis` | Config: recover (re-open regions) once `duty` falls below `threshold − hysteresis`. |
+
+Plotting `duty` and `level` across the mesh shows, live, which repeaters are
+shedding inter-region traffic and how hard — the intended congestion signal.
+`enabled: false` means the repeater is not gating; `duty` is still reported and
+is useful on its own.
 
 ## Interval
 

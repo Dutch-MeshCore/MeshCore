@@ -1769,6 +1769,15 @@ void MyMesh::publishFilterStatsIfDue(uint32_t now) {
   }
   v.hash_top_count = nh;
 
+  // duty-cycle region gating state (lets the observer see which repeaters are
+  // shedding inter-region traffic, and how hard, across the mesh)
+  v.dc_gate_enabled = _prefs.dc_gate_enabled != 0;
+  v.dc_gate_duty = getTxDutyCyclePercent();
+  v.dc_gate_level = dc_gate_level;
+  v.dc_gate_max_level = region_map.getMaxGateLevel();
+  v.dc_gate_threshold = _prefs.dc_gate_threshold;
+  v.dc_gate_hysteresis = _prefs.dc_gate_hysteresis;
+
   char origin[32];
   MQTTBridge::getEffectiveMqttOrigin(&_prefs, _cli.getObserverPrefs(), origin, sizeof(origin));
   char self_pubkey_hex[65];

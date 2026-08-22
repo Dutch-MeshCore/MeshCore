@@ -170,6 +170,16 @@ int MQTTMessageBuilder::buildFilterStatsMessage(
     c["hops_max"] = v.cfg_hops_max[i];
   }
 
+  // Duty-cycle region gating: live shed state so the observer can map which
+  // repeaters are gating inter-region traffic, and how hard, mesh-wide.
+  JsonObject rg = root["region_gate"].to<JsonObject>();
+  rg["enabled"] = v.dc_gate_enabled;
+  rg["duty"] = v.dc_gate_duty;              // live TX duty cycle %
+  rg["level"] = v.dc_gate_level;            // outer layers currently gated
+  rg["max_level"] = v.dc_gate_max_level;    // highest gate level this tree allows
+  rg["threshold"] = v.dc_gate_threshold;    // config: gate above this %
+  rg["hysteresis"] = v.dc_gate_hysteresis;  // config: recover below (threshold - hysteresis)
+
   return serializeFilterStats(root, buffer, buffer_size);
 }
 

@@ -57,6 +57,14 @@ struct MQTTFilterStatsView {
   struct HashType { uint8_t type; uint32_t drops; };
   HashType hash_top_types[3] = {};
   int hash_top_count = 0;
+
+  // --- duty-cycle region gating (transient runtime state; see RegionMap::applyDutyGate) ---
+  bool    dc_gate_enabled = false;   // feature opt-in flag
+  uint8_t dc_gate_duty = 0;          // live TX duty cycle, 0..100 %
+  uint8_t dc_gate_level = 0;         // outer layers currently gated (0 = none)
+  uint8_t dc_gate_max_level = 0;     // highest gate level this repeater's region tree allows
+  uint8_t dc_gate_threshold = 0;     // config: gate above this TX duty %
+  uint8_t dc_gate_hysteresis = 0;    // config: recover below (threshold - hysteresis)
 };
 
 class MQTTMessageBuilder {

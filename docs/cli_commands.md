@@ -717,6 +717,45 @@ filter stats hops
 
 ---
 
+#### Duty-cycle region gating
+
+Autonomously sheds inter-region flood traffic when this repeater's own TX duty
+cycle is high, protecting the local cluster during high-traffic or disruption
+events — no admin access needed once configured. Opt-in and **off by default**.
+
+It reuses the existing [Region Management](#region-management-v110) hierarchy.
+When the TX duty cycle rises above the threshold, regions are gated from the
+outermost layer inward — the wildcard `*` first, then the broadest named regions
+— always keeping the innermost cluster and the operator's home region open. As
+the duty cycle recovers below `threshold − hysteresis`, regions re-open
+inside-out, with a small random per-step delay so nearby repeaters don't all
+recover in lockstep. The gate is transient: it is never written to the region
+config, so a `region save` or a reboot mid-event can never make a deny permanent.
+
+**Usage:**
+- `set dc.gate <0|1>` — enable (`1`) or disable (`0`) the feature
+- `get dc.gate` — show whether it is on or off
+- `set dc.gate.thresh <1-100>` — TX duty-cycle % above which gating starts
+- `get dc.gate.thresh`
+- `set dc.gate.hyst <0-50>` — recovery margin %: regions re-open below `(threshold − hysteresis)`
+- `get dc.gate.hyst`
+- `get dc.gate.status` — live TX duty cycle % and current gate level (`level/max`)
+
+**Defaults:** disabled; threshold `70`; hysteresis `10` (so recovery begins below 60%).
+
+**Examples:**
+- `set dc.gate 1` — turn gating on
+- `set dc.gate.thresh 80` — only start shedding above 80% duty cycle
+- `set dc.gate.hyst 15` — re-open regions once duty cycle drops below 65%
+- `get dc.gate.status` — e.g. `> duty 74%, gate level 2/4`
+
+**Notes:**
+- The innermost (deepest) region layer and the configured home region are never gated.
+- A repeater with no named regions (wildcard only) never gates — the wildcard *is* its local cluster.
+- On observer/MQTT builds the live state is also published in the `region_gate` block of the [`filter` MQTT message](packet_filter_reference.md#region_gate).
+
+---
+
 #### View or change the airtime factor (duty cycle limit)
 > **Deprecated** as of firmware v1.15.0. Use [`get/set dutycycle`](#view-or-change-the-duty-cycle-limit) instead.
 
