@@ -119,6 +119,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
   bool region_load_active;
   unsigned long dirty_contacts_expiry;
   Filter _filter;
+  unsigned long next_dc_gate_check;   // duty-cycle region gating: next evaluation time
+  uint8_t dc_gate_level;              // current number of outer layers gated (0 = none)
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif

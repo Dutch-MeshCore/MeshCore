@@ -70,6 +70,9 @@ public:
   uint8_t path_hash_mode = 0;   // which path mode to use when sending
   uint8_t loop_detect = 0;
   uint8_t cad_enabled = 0;      // hardware Channel Activity Detection before TX (boolean)
+  uint8_t dc_gate_enabled = 0;    // duty-cycle region gating: 0 = off (opt-in)
+  uint8_t dc_gate_threshold = 70; // TX duty-cycle % above which outer regions start being gated
+  uint8_t dc_gate_hysteresis = 10;// recover margin in %: re-enable regions below (threshold - hysteresis)
   uint8_t extra_sf[4];
 
   // NOTE: observer settings (MQTT/WiFi/timezone/SNMP/alert) are not in NodePrefs.
@@ -154,6 +157,9 @@ private:
       def("f_max_uns", _parent->flood_max_unscoped);
       def("f_max_adv", _parent->flood_max_advert);
       def("loop", _parent->loop_detect);
+      def("dc_gate", _parent->dc_gate_enabled);        // duty-cycle region gating: 0 = off (opt-in)
+      def("dc_gate_thr", _parent->dc_gate_threshold);  // TX duty-cycle % to start gating outer regions
+      def("dc_gate_hyst", _parent->dc_gate_hysteresis);// recover margin %: re-enable below (thr - hyst)
     }
   public:
     RepeatPrefs(NodePrefs* parent) : _parent(parent) { }

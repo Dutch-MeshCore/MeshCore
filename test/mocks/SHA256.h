@@ -2,12 +2,15 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 // Mock SHA256 for native testing — deterministic but not cryptographic.
 // finalize() writes real (non-garbage) output so calculatePacketHash() produces
 // distinguishable results for packets with different payloads.
-#include <string.h>
-
+// Pointer params are void* to match the real Crypto library signatures, so this
+// mock also backs TransportKeyStore.cpp (which hashes into non-uint8_t* dests);
+// the region-gating tests exercise pure hierarchy logic and never rely on the
+// HMAC output, so resetHMAC/finalizeHMAC stay inert.
 class SHA256 {
   uint8_t _state[32];
   size_t _len;
@@ -24,12 +27,15 @@ public:
     }
   }
 
-  void finalize(uint8_t* hash, size_t hashLen) {
+  void finalize(void* hash, size_t hashLen) {
+    uint8_t* out = static_cast<uint8_t*>(hash);
     for (size_t i = 0; i < hashLen; i++) {
-      hash[i] = _state[i % 32];
+      out[i] = _state[i % 32];
     }
   }
 
-  void resetHMAC(const uint8_t* key, size_t keyLen) {}
-  void finalizeHMAC(const uint8_t* key, size_t keyLen, uint8_t* hash, size_t hashLen) {}
+  void resetHMAC(const void* key, size_t keyLen) { (void)key; (void)keyLen; }
+  void finalizeHMAC(const void* key, size_t keyLen, void* hash, size_t hashLen) {
+    (void)key; (void)keyLen; (void)hash; (void)hashLen;
+  }
 };

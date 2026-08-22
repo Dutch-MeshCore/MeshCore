@@ -355,6 +355,11 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy 
     _prefs->radio_fem_txgain = constrain(_prefs->radio_fem_txgain, 0, 1); // boolean
     _prefs->cad_enabled = constrain(_prefs->cad_enabled, 0, 1); // boolean
 
+    // duty-cycle region gating
+    _prefs->dc_gate_enabled = constrain(_prefs->dc_gate_enabled, 0, 1);       // boolean
+    _prefs->dc_gate_threshold = constrain(_prefs->dc_gate_threshold, 1, 100); // percent
+    _prefs->dc_gate_hysteresis = constrain(_prefs->dc_gate_hysteresis, 0, 50);// percent margin
+
     file.close();
   }
 }
@@ -1130,6 +1135,28 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     _prefs->airtime_factor = atof(&config[3]);
     savePrefs();
     strcpy(reply, "OK");
+  } else if (memcmp(config, "dc.gate.thresh ", 15) == 0) {
+    int t = atoi(&config[15]);
+    if (t < 1 || t > 100) {
+      strcpy(reply, "ERROR: dc.gate.thresh must be 1-100");
+    } else {
+      _prefs->dc_gate_threshold = t;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
+  } else if (memcmp(config, "dc.gate.hyst ", 13) == 0) {
+    int h = atoi(&config[13]);
+    if (h < 0 || h > 50) {
+      strcpy(reply, "ERROR: dc.gate.hyst must be 0-50");
+    } else {
+      _prefs->dc_gate_hysteresis = h;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
+  } else if (memcmp(config, "dc.gate ", 8) == 0) {
+    _prefs->dc_gate_enabled = (atoi(&config[8]) != 0) ? 1 : 0;
+    savePrefs();
+    strcpy(reply, "OK");
   } else if (memcmp(config, "int.thresh ", 11) == 0) {
     _prefs->interference_threshold = atoi(&config[11]);
     savePrefs();
@@ -1512,6 +1539,12 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
     sprintf(reply, "> %d.%d%%", dc_int, dc_frac);
   } else if (memcmp(config, "af", 2) == 0) {
     sprintf(reply, "> %s", StrHelper::ftoa(_prefs->airtime_factor));
+  } else if (memcmp(config, "dc.gate.thresh", 14) == 0) {
+    sprintf(reply, "> %d", (uint32_t) _prefs->dc_gate_threshold);
+  } else if (memcmp(config, "dc.gate.hyst", 12) == 0) {
+    sprintf(reply, "> %d", (uint32_t) _prefs->dc_gate_hysteresis);
+  } else if (memcmp(config, "dc.gate", 7) == 0) {
+    sprintf(reply, "> %s", _prefs->dc_gate_enabled ? "on" : "off");
   } else if (memcmp(config, "int.thresh", 10) == 0) {
     sprintf(reply, "> %d", (uint32_t) _prefs->interference_threshold);
   } else if (memcmp(config, "cad", 3) == 0) {
