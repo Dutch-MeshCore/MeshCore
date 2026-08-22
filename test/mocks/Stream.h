@@ -3,9 +3,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
 
 // Mock Stream class for native testing
-// Provides minimal interface needed by Utils.h
+// Provides minimal interface needed by Utils.h, plus printf() used by
+// RegionMap.cpp's exporter (BufStream).
 
 #define DEC 10
 #define HEX 16
@@ -23,7 +26,7 @@ public:
         }
         return write((const uint8_t *) str, strlen(str));
     }
-    virtual size_t write(const uint8_t *buffer, size_t size) { 
+    virtual size_t write(const uint8_t *buffer, size_t size) {
         size_t t = 0;
         for (int i = 0; i < size; i++) { t += write(buffer[i]); }
         return t;
@@ -45,9 +48,20 @@ public:
     size_t print(char c) { return write(c); }
     size_t print(const char* str) { return write(str); }
 
+    size_t printf(const char* fmt, ...) {
+        char buf[256];
+        va_list ap;
+        va_start(ap, fmt);
+        int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+        va_end(ap);
+        if (n < 0) return 0;
+        if (n > (int)sizeof(buf) - 1) n = sizeof(buf) - 1;
+        return write((const uint8_t*)buf, (size_t)n);
+    }
+
     //size_t println(void)  { return 0; }
-    
-    virtual void flush() { /* Empty implementation for backward compatibility */ }    
+
+    virtual void flush() { /* Empty implementation for backward compatibility */ }
 };
 
 class Stream: public Print
@@ -59,7 +73,7 @@ public:
     virtual int read() { return -1; }
     virtual int peek() { return 0; }
 
-    virtual size_t readBytes(char *buffer, size_t length) { 
+    virtual size_t readBytes(char *buffer, size_t length) {
         size_t i = 0;
         while (i < length && available()) {
             buffer[i++] = read();
