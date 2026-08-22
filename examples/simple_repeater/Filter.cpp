@@ -6,7 +6,7 @@
 static const char FILTER_HELP[] =
     "> filter [ help | on | off | reset | types | count | stats <topic> | hops <args> | rate <args> | channel <args> | hash <min_bytes> | malformed <on | off> ]";
 static const char FILTER_STATS_HELP[] =
-    "> filter stats [ hops | rate | hash | channel | malformed | top ]";
+    "> filter stats [ hops | rate | channel | hash | malformed | top ]";
 
 static_assert(sizeof(FILTER_HELP) <= FILTER_REPLY_SIZE, "filter help text no longer fits the reply buffer");
 static_assert(sizeof(FILTER_STATS_HELP) <= FILTER_REPLY_SIZE, "filter stats help text no longer fits the reply buffer");
