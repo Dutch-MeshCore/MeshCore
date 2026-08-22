@@ -754,6 +754,34 @@ config, so a `region save` or a reboot mid-event can never make a deny permanent
 - A repeater with no named regions (wildcard only) never gates — the wildcard *is* its local cluster.
 - On observer/MQTT builds the live state is also published in the `region_gate` block of the [`filter` MQTT message](packet_filter_reference.md#region_gate).
 
+**How it interacts with the packet filter:**
+
+Region gating and the [packet filter](#packet-filter-repeater-only) are
+complementary and run in a fixed order on each flood packet — region gating
+first, the packet filter second:
+
+1. Region gating decides whether the packet's **region** may flood at all
+   (config deny **or** the transient duty-cycle gate). A gated region's packets
+   are dropped here.
+2. Only packets that pass then reach the packet filter, which applies its
+   per-type hop/rate limits, soft cutoff and channel/source blocks.
+
+Because a region-gated packet is dropped *before* the filter sees it, the two
+never double-count: region-gating drops do **not** appear in the `filter stats`
+counters (watch the gate via `get dc.gate.status` or the `region_gate` MQTT
+block instead). They also can't conflict — both only ever *deny* forwarding,
+never re-enable it.
+
+They shed on different axes: region gating is coarse and load-adaptive
+(*whose* traffic, driven by this repeater's own TX duty cycle), while the filter
+is fine-grained and policy-driven (*what* traffic, by configured limits). Running
+both is defense-in-depth and recommended; just note that both shed **flood**
+traffic, so on a saturated repeater they stack — keep the filter's limits for
+locally-relevant types generous if you rely on region gating as the first-line
+congestion response. Region gating is off by default, so enabling it layers on
+top of an existing filter configuration without disturbing it. Directed
+(non-flood) traffic is never region-gated.
+
 ---
 
 #### View or change the airtime factor (duty cycle limit)
