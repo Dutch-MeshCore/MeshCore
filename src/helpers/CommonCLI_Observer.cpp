@@ -245,6 +245,12 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
     _mqtt_prefs.mqtt_raw_enabled = memcmp(&config[9], "on", 2) == 0;
     savePrefs();
     strcpy(reply, "OK");
+  } else if (memcmp(config, "mqtt.config ", 12) == 0) {
+    // Opt-in publish of the node config to the `config` topic. Accepts 1/on.
+    _mqtt_prefs.mqtt_config_enabled =
+        (config[12] == '1' || memcmp(&config[12], "on", 2) == 0) ? 1 : 0;
+    savePrefs();
+    strcpy(reply, "OK");
   } else if (memcmp(config, "mqtt.tx ", 8) == 0) {
     if (memcmp(&config[8], "advert", 6) == 0) {
       _mqtt_prefs.mqtt_tx_enabled = 2;
@@ -1031,6 +1037,10 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
   } else if (memcmp(config, "mqtt.config.valid", 17) == 0) {
     bool valid = MQTTBridge::isConfigValid(&_mqtt_prefs);
     sprintf(reply, "> %s", valid ? "valid" : "invalid");
+  } else if (memcmp(config, "mqtt.config", 11) == 0) {
+    // Bare token AFTER mqtt.config.valid: the longer token must be tested first,
+    // else this 11-char prefix would swallow "mqtt.config.valid".
+    sprintf(reply, "> %d", _mqtt_prefs.mqtt_config_enabled ? 1 : 0);
 #endif
   } else if (memcmp(config, "alert.hashtag", 13) == 0) {
     sprintf(reply, "> %s", _mqtt_prefs.alert_hashtag[0] ? _mqtt_prefs.alert_hashtag : "(unset)");
