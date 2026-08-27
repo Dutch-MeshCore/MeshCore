@@ -78,6 +78,10 @@ public:
   // Filter-stats JSON buffer size, shared with the mesh task that builds it.
   static const size_t FILTER_JSON_BUFFER_SIZE = 2048;
 
+  // Node-config JSON buffer size: larger than filter-stats because the grouped
+  // config payload carries many fields.
+  static const size_t CONFIG_JSON_BUFFER_SIZE = 4096;
+
 private:
   static const size_t AUTH_TOKEN_SIZE = 768;
 
@@ -471,6 +475,10 @@ private:
   // Publishes the pending _filter_json_buffer to every connected slot's filter
   // topic. Runs on the MQTT task (Core 0) only.
   bool publishFilterStats();
+
+  // Publishes the pending _config_json_buffer to every connected slot's config
+  // topic. Runs on the MQTT task (Core 0) only.
+  bool publishConfig();
 #endif
   void queuePacket(mesh::Packet* packet, bool is_tx);
   void dequeuePacket();
@@ -524,6 +532,11 @@ private:
   char _filter_json_buffer[FILTER_JSON_BUFFER_SIZE] = {};
   size_t _filter_publish_len = 0;
   std::atomic<bool> _filter_publish_pending{false};
+
+  // Node-config publishing: same mesh-task -> MQTT-task handoff as filter-stats.
+  char _config_json_buffer[CONFIG_JSON_BUFFER_SIZE] = {};
+  size_t _config_publish_len = 0;
+  std::atomic<bool> _config_publish_pending{false};
 
   MQTTPrefs* _obs = nullptr;
 
@@ -614,6 +627,10 @@ public:
   // Filter-stats analog of requestPublishNeighbors: the mesh task hands over the
   // built JSON, the MQTT task publishes it to every slot's filter topic.
   void requestPublishFilterStats(const char* json, size_t len);
+
+  // Config-topic analog of requestPublishFilterStats: the mesh task hands over
+  // the built node-config JSON, the MQTT task publishes it to every slot.
+  void requestPublishConfig(const char* json, size_t len);
 
   // Periodic-neighbors schedule, reported by the mesh loop for `get mqtt.status`.
   // The mesh owns the timer; the bridge only caches the summary so the wrap-safe

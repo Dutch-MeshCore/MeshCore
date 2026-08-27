@@ -1471,6 +1471,17 @@ void MQTTBridge::mqttTaskLoop() {
     }
 #endif
 
+    // Consume a pending node-config snapshot handed over by the mesh (Core 1).
+    if (_config_publish_pending.load(std::memory_order_acquire)) {
+      bool ok = publishConfig();
+      if (ok) {
+        MQTT_DEBUG_PRINTLN("Node config published");
+      } else {
+        MQTT_DEBUG_PRINTLN("Node config publish failed");
+      }
+      _config_publish_pending.store(false, std::memory_order_release);
+    }
+
     // Consume a pending filter-stats snapshot handed over by the mesh (Core 1).
     if (_filter_publish_pending.load(std::memory_order_acquire)) {
       bool ok = publishFilterStats();
@@ -3703,6 +3714,40 @@ bool MQTTBridge::publishFilterStats() {
         // the status/neighbors publish policy.
         bool use_retain = _slots[i].preset ? _slots[i].preset->allow_retain : false;
         if (publishToSlot(i, topic, _filter_json_buffer, _filter_publish_len, use_retain, 0)) {
+          published = true;
+        }
+      }
+    }
+  }
+  return published;
+}
+
+void MQTTBridge::requestPublishConfig(const char* json, size_t len) {
+  if (!json || len == 0) return;
+  // Drop a new snapshot while one is still in flight (Core 0 clears the flag).
+  if (_config_publish_pending.load(std::memory_order_acquire)) return;
+  if (len >= CONFIG_JSON_BUFFER_SIZE) {
+    len = CONFIG_JSON_BUFFER_SIZE - 1;
+  }
+  memcpy(_config_json_buffer, json, len);
+  _config_json_buffer[len] = '\0';
+  _config_publish_len = len;
+  _config_publish_pending.store(true, std::memory_order_release);
+}
+
+bool MQTTBridge::publishConfig() {
+  if (_config_publish_len == 0) return false;
+  if (!_cached_has_connected_slots) return false;
+
+  refreshOriginFromPrefs();
+
+  bool published = false;
+  char topic[128];
+  for (int i = 0; i < RUNTIME_MQTT_SLOTS; i++) {
+    if (_slots[i].enabled && _slots[i].client && _slots[i].connected) {
+      if (buildTopicForSlot(i, MSG_CONFIG, topic, sizeof(topic))) {
+        bool use_retain = _slots[i].preset ? _slots[i].preset->allow_retain : false;
+        if (publishToSlot(i, topic, _config_json_buffer, _config_publish_len, use_retain, 0)) {
           published = true;
         }
       }

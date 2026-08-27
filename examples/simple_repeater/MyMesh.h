@@ -186,6 +186,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
   mesh::Packet* neighbor_discover_request; // request awaiting TX completion
   unsigned long next_neighbors_publish;   // periodic publish deadline (0 = fire ASAP)
   unsigned long next_filter_publish = 0;  // filter-stats publish deadline (0 = fire ASAP)
+  unsigned long next_config_publish = 0;  // node-config publish deadline (0 = fire ASAP)
   char self_scopes_buf[96];
   char self_default_scope_buf[31];
   char neighbor_discover_origin[32];
@@ -232,6 +233,7 @@ protected:
   bool allowPacketForward(const mesh::Packet* packet) override;
 #ifdef WITH_MQTT_BRIDGE
   void publishFilterStatsIfDue(uint32_t now);   // periodic MQTT filter-stats snapshot
+  void publishConfigIfDue(uint32_t now);        // periodic MQTT node-config snapshot
 #endif
   const char* getLogDateTime() override;
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override;

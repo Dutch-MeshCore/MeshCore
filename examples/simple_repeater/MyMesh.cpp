@@ -1801,6 +1801,137 @@ void MyMesh::publishFilterStatsIfDue(uint32_t now) {
   int len = MQTTMessageBuilder::buildFilterStatsMessage(doc, v, json_buf, sizeof(json_buf));
   if (len > 0) bridge->requestPublishFilterStats(json_buf, (size_t)len);
 }
+
+// publishConfigIfDue publishes the node's non-sensitive config to the `config`
+// topic when the operator has enabled it (set mqtt.config 1). It reuses the
+// filter-stats interval (config changes rarely). Only public, non-sensitive
+// settings are included; GPS lat/lon ride along only when the node already
+// broadcasts its location via adverts.
+void MyMesh::publishConfigIfDue(uint32_t now) {
+  if (!bridge) return;
+  MQTTPrefs* op = _cli.getObserverPrefs();
+  if (op->mqtt_config_enabled == 0) { next_config_publish = 0; return; }  // opt-in off
+  uint32_t interval = op->mqtt_filter_interval;
+  if (interval == 0) { next_config_publish = 0; return; }  // publishing disabled
+  if (next_config_publish != 0 && !millisHasNowPassed(next_config_publish)) return;
+  next_config_publish = futureMillis(interval);
+
+  MQTTNodeConfigView v;
+  v.node_name = _prefs.node_name;
+  v.owner_info = _prefs.owner_info;
+  v.owner_key = op->mqtt_owner_public_key;
+  v.advert_interval_min = (uint16_t)_prefs.advert_interval * 2;   // stored as min/2
+  v.flood_advert_interval_hrs = _prefs.flood_advert_interval;      // hours
+
+  // radio
+  v.freq = _prefs.freq; v.bw = _prefs.bw; v.sf = _prefs.sf; v.cr = _prefs.cr;
+  v.tx_power = _prefs.tx_power_dbm; v.cad = _prefs.cad_enabled;
+  v.interference_threshold = _prefs.interference_threshold;
+  v.rxgain = _prefs.rx_boosted_gain; v.fem_rxgain = _prefs.radio_fem_rxgain; v.fem_txgain = _prefs.radio_fem_txgain;
+  v.airtime_factor = _prefs.airtime_factor;
+  v.rx_delay = _prefs.rx_delay_base; v.tx_delay_factor = _prefs.tx_delay_factor;
+  v.direct_tx_delay_factor = _prefs.direct_tx_delay_factor;
+  v.agc_reset_interval = (uint16_t)_prefs.agc_reset_interval * 4;  // stored as secs/4
+  v.path_hash_mode = _prefs.path_hash_mode; v.multi_acks = _prefs.multi_acks;
+  for (int i = 0; i < 4; i++) v.extra_sf[i] = _prefs.extra_sf[i];
+
+  // repeat
+  v.disable_fwd = _prefs.disable_fwd; v.flood_max = _prefs.flood_max;
+  v.flood_max_unscoped = _prefs.flood_max_unscoped; v.flood_max_advert = _prefs.flood_max_advert;
+  v.loop_detect = _prefs.loop_detect;
+
+  // region gate (config)
+  v.rg_enabled = _prefs.dc_gate_enabled != 0;
+  v.rg_threshold = _prefs.dc_gate_threshold; v.rg_hysteresis = _prefs.dc_gate_hysteresis;
+
+  // region scopes tree (from the RegionMap; pointers stay valid for this call)
+  const RegionEntry& wc = region_map.getWildcard();
+  v.region_wildcard_flood = (wc.flags & REGION_DENY_FLOOD) == 0;
+  const RegionEntry* home = region_map.getHomeRegion();
+  const RegionEntry* def = region_map.getDefaultRegion();
+  v.region_home = home ? home->name : nullptr;
+  v.region_default = def ? def->name : nullptr;
+  int nsc = 0;
+  for (int i = 0; i < region_map.getCount() && nsc < MQTTNodeConfigView::MAX_SCOPES; i++) {
+    const RegionEntry* r = region_map.getByIdx(i);
+    if (!r || r->name[0] == '\0') continue;
+    v.scopes[nsc].name = r->name;
+    v.scopes[nsc].flood = (r->flags & REGION_DENY_FLOOD) == 0;
+    const RegionEntry* par = (r->parent == 0) ? nullptr : region_map.findById(r->parent);
+    v.scopes[nsc].parent = par ? par->name : "*";
+    nsc++;
+  }
+  v.scope_count = nsc;
+
+  // bridge (secret excluded)
+  v.bridge_enabled = _prefs.bridge_enabled; v.bridge_delay = _prefs.bridge_delay;
+  v.bridge_source = _prefs.bridge_pkt_src; v.bridge_baud = _prefs.bridge_baud;
+  v.bridge_channel = _prefs.bridge_channel;
+
+  // gps + conditional location (mirror CommonCLI::buildAdvertData)
+  v.gps_enabled = _prefs.gps_enabled; v.gps_interval = _prefs.gps_interval;
+  v.advert_loc_policy = _prefs.advert_loc_policy;
+  if (_prefs.advert_loc_policy != ADVERT_LOC_NONE) {
+    v.has_location = true;
+    if (_prefs.advert_loc_policy == ADVERT_LOC_SHARE) {
+      v.lat = sensors.node_lat; v.lon = sensors.node_lon;
+    } else {  // ADVERT_LOC_PREFS
+      v.lat = _prefs.node_lat; v.lon = _prefs.node_lon;
+    }
+  }
+
+  // power / room
+  v.powersaving = _prefs.powersaving_enabled; v.adc_multiplier = _prefs.adc_multiplier;
+  v.allow_read_only = _prefs.allow_read_only;
+
+  // mqtt publishing (broker host/port/creds excluded)
+  v.mqtt_status = op->mqtt_status_enabled; v.mqtt_packets = op->mqtt_packets_enabled;
+  v.mqtt_raw = op->mqtt_raw_enabled; v.mqtt_tx = op->mqtt_tx_enabled; v.mqtt_rx = op->mqtt_rx_enabled;
+  v.mqtt_status_interval = op->mqtt_status_interval; v.mqtt_filter_interval = op->mqtt_filter_interval;
+  v.mqtt_neighbors = op->mqtt_neighbors_enabled; v.mqtt_neighbors_interval = op->mqtt_neighbors_interval;
+  v.mqtt_iata = op->mqtt_iata; v.ntp_server = op->mqtt_ntp_server;
+  v.watchdog_minutes = op->radio_watchdog_minutes;
+  int nsl = 0;
+  for (int i = 0; i < MQTT_PREFS_SLOT_COUNT && nsl < MQTTNodeConfigView::MAX_SLOTS; i++) {
+    v.slot_presets[nsl] = op->mqtt_slot_preset[i];
+    v.slot_topics[nsl] = op->mqtt_slot_topic[i];
+    v.slot_filters[nsl] = op->mqtt_slot_packet_filter[i];
+    nsl++;
+  }
+  v.slot_count = nsl;
+
+  // timezone
+  v.timezone_string = op->timezone_string; v.timezone_offset = op->timezone_offset;
+
+  // alert (psk excluded)
+  v.alert_enabled = op->alert_enabled; v.alert_region = op->alert_region; v.alert_hashtag = op->alert_hashtag;
+  v.alert_wifi_minutes = op->alert_wifi_minutes; v.alert_mqtt_minutes = op->alert_mqtt_minutes;
+  v.alert_interval_min = op->alert_min_interval_min;
+
+  // snmp (community excluded)
+  v.snmp_enabled = op->snmp_enabled;
+
+  // identity + time (mirror the filter-stats snapshot)
+  char origin[32];
+  MQTTBridge::getEffectiveMqttOrigin(&_prefs, op, origin, sizeof(origin));
+  char self_pubkey_hex[65];
+  mesh::Utils::toHex(self_pubkey_hex, self_id.pub_key, PUB_KEY_SIZE);
+  char timestamp[40];
+  MQTTMessageBuilder::formatIsoTimestampForMqtt(
+    getRTCClock()->getCurrentTime(), 0, nullptr, timestamp, sizeof(timestamp));
+  v.origin = origin;
+  v.origin_id = self_pubkey_hex;
+  v.timestamp = timestamp;
+  v.uptime_secs = (uint32_t)(uptime_millis / 1000);
+  static uint16_t s_cfg_boot_id = 0;
+  if (s_cfg_boot_id == 0) s_cfg_boot_id = (uint16_t)((getRTCClock()->getCurrentTime() & 0xFFFF) | 1);
+  v.boot_id = s_cfg_boot_id;
+
+  static char json_buf[MQTTBridge::CONFIG_JSON_BUFFER_SIZE];  // mesh task only
+  JsonDocument doc;
+  int len = MQTTMessageBuilder::buildConfigMessage(doc, v, json_buf, sizeof(json_buf));
+  if (len > 0) bridge->requestPublishConfig(json_buf, (size_t)len);
+}
 #endif
 
 void MyMesh::loop() {
@@ -1926,6 +2057,7 @@ void MyMesh::loop() {
 #ifdef WITH_MQTT_BRIDGE
   _alerter.onLoop(now);
   publishFilterStatsIfDue(now);
+  publishConfigIfDue(now);
 #endif
 
 #if defined(WITH_MQTT_NEIGHBORS)
