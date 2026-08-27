@@ -407,7 +407,7 @@ private:
   mesh::MillisecondClock* _ms;    // For uptime
 
   // Topic building
-  enum MQTTMessageType { MSG_STATUS, MSG_PACKETS, MSG_RAW, MSG_NEIGHBORS, MSG_FILTER };
+  enum MQTTMessageType { MSG_STATUS, MSG_PACKETS, MSG_RAW, MSG_NEIGHBORS, MSG_FILTER, MSG_CONFIG };
   bool buildTopicForSlot(int index, MQTTMessageType type, char* topic_buf, size_t buf_size);
   bool substituteTopicTemplate(const char* tmpl, MQTTMessageType type, int slot_index, char* buf, size_t buf_size);
   uint8_t eligiblePacketSlots(uint8_t packet_type, MQTTMessageType type);

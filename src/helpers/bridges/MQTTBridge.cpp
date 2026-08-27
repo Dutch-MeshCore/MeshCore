@@ -2414,7 +2414,8 @@ bool MQTTBridge::buildTopicForSlot(int index, MQTTMessageType type, char* topic_
       static_cast<int>(MSG_PACKETS) == MQTT_PUBLICATION_PACKETS &&
       static_cast<int>(MSG_RAW) == MQTT_PUBLICATION_RAW &&
       static_cast<int>(MSG_NEIGHBORS) == MQTT_PUBLICATION_NEIGHBORS &&
-      static_cast<int>(MSG_FILTER) == MQTT_PUBLICATION_FILTER,
+      static_cast<int>(MSG_FILTER) == MQTT_PUBLICATION_FILTER &&
+      static_cast<int>(MSG_CONFIG) == MQTT_PUBLICATION_CONFIG,
       "topic router enum drift");
 
   if (!mqttTopicSlotIndexValid(index, RUNTIME_MQTT_SLOTS)) return false;

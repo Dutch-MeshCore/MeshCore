@@ -16,6 +16,7 @@ enum MQTTPublicationType {
   MQTT_PUBLICATION_RAW = 2,
   MQTT_PUBLICATION_NEIGHBORS = 3,
   MQTT_PUBLICATION_FILTER = 4,
+  MQTT_PUBLICATION_CONFIG = 5,
 };
 
 enum MQTTTopicRouteStyle {
@@ -35,6 +36,7 @@ static inline const char* mqttPublicationTypeName(int type) {
     case MQTT_PUBLICATION_RAW: return "raw";
     case MQTT_PUBLICATION_NEIGHBORS: return "neighbors";
     case MQTT_PUBLICATION_FILTER: return "filter";
+    case MQTT_PUBLICATION_CONFIG: return "config";
     default: return NULL;
   }
 }

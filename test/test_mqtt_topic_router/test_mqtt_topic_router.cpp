@@ -25,6 +25,7 @@ const TypeCase kTypes[] = {
   {MQTT_PUBLICATION_PACKETS, "packets"},
   {MQTT_PUBLICATION_RAW, "raw"},
   {MQTT_PUBLICATION_NEIGHBORS, "neighbors"},
+  {MQTT_PUBLICATION_CONFIG, "config"},
 };
 
 TEST(MQTTTopicRouter, EveryMeshCorePresetSupportsEveryPublicationType) {
@@ -186,10 +187,14 @@ TEST(MQTTTopicRouter, PublicationTypeEnumValuesAreFrozen) {
   EXPECT_EQ(1, MQTT_PUBLICATION_PACKETS);
   EXPECT_EQ(2, MQTT_PUBLICATION_RAW);
   EXPECT_EQ(3, MQTT_PUBLICATION_NEIGHBORS);
+  EXPECT_EQ(4, MQTT_PUBLICATION_FILTER);
+  EXPECT_EQ(5, MQTT_PUBLICATION_CONFIG);
   EXPECT_STREQ("status", mqttPublicationTypeName(MQTT_PUBLICATION_STATUS));
   EXPECT_STREQ("packets", mqttPublicationTypeName(MQTT_PUBLICATION_PACKETS));
   EXPECT_STREQ("raw", mqttPublicationTypeName(MQTT_PUBLICATION_RAW));
   EXPECT_STREQ("neighbors", mqttPublicationTypeName(MQTT_PUBLICATION_NEIGHBORS));
+  EXPECT_STREQ("filter", mqttPublicationTypeName(MQTT_PUBLICATION_FILTER));
+  EXPECT_STREQ("config", mqttPublicationTypeName(MQTT_PUBLICATION_CONFIG));
 }
 
 }  // namespace
