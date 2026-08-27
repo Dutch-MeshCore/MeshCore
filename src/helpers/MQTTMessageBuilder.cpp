@@ -183,6 +183,136 @@ int MQTTMessageBuilder::buildFilterStatsMessage(
   return serializeFilterStats(root, buffer, buffer_size);
 }
 
+// setIfText adds a string field only when it is non-empty, so unset optional
+// text (owner_info, ntp_server, ...) is omitted rather than published as "".
+static void setIfText(JsonObject o, const char* key, const char* v) {
+  if (v && v[0] != '\0') o[key] = v;
+}
+
+int MQTTMessageBuilder::buildConfigMessage(
+    JsonDocument& doc, const MQTTNodeConfigView& v, char* buffer, size_t buffer_size) {
+  doc.clear();
+  JsonObject root = doc.to<JsonObject>();
+
+  root["timestamp"] = v.timestamp;
+  root["origin"] = v.origin;
+  root["origin_id"] = v.origin_id;
+  root["uptime_secs"] = v.uptime_secs;
+  root["boot_id"] = v.boot_id;
+  setIfText(root, "node_name", v.node_name);
+  setIfText(root, "owner_info", v.owner_info);
+  setIfText(root, "owner_key", v.owner_key);
+  root["advert_interval"] = v.advert_interval_min;
+  root["flood_advert_interval"] = v.flood_advert_interval_hrs;
+
+  JsonObject radio = root["radio"].to<JsonObject>();
+  radio["freq"] = v.freq;
+  radio["bw"] = v.bw;
+  radio["sf"] = v.sf;
+  radio["cr"] = v.cr;
+  radio["tx_power"] = v.tx_power;
+  radio["cad"] = v.cad;
+  radio["interference_threshold"] = v.interference_threshold;
+  radio["rxgain"] = v.rxgain;
+  radio["fem_rxgain"] = v.fem_rxgain;
+  radio["fem_txgain"] = v.fem_txgain;
+  radio["airtime_factor"] = v.airtime_factor;
+  radio["rx_delay"] = v.rx_delay;
+  radio["tx_delay_factor"] = v.tx_delay_factor;
+  radio["direct_tx_delay_factor"] = v.direct_tx_delay_factor;
+  radio["agc_reset_interval"] = v.agc_reset_interval;
+  radio["path_hash_mode"] = v.path_hash_mode;
+  radio["multi_acks"] = v.multi_acks;
+  JsonArray esf = radio["extra_sf"].to<JsonArray>();
+  for (int i = 0; i < 4; i++) esf.add(v.extra_sf[i]);
+
+  JsonObject rep = root["repeat"].to<JsonObject>();
+  rep["disable_fwd"] = v.disable_fwd;
+  rep["flood_max"] = v.flood_max;
+  rep["flood_max_unscoped"] = v.flood_max_unscoped;
+  rep["flood_max_advert"] = v.flood_max_advert;
+  rep["loop_detect"] = v.loop_detect;
+
+  JsonObject rg = root["region_gate"].to<JsonObject>();
+  rg["enabled"] = v.rg_enabled;
+  rg["threshold"] = v.rg_threshold;
+  rg["hysteresis"] = v.rg_hysteresis;
+
+  JsonObject region = root["region"].to<JsonObject>();
+  setIfText(region, "home", v.region_home);
+  setIfText(region, "default", v.region_default);
+  region["wildcard_flood"] = v.region_wildcard_flood;
+  JsonArray scopes = region["scopes"].to<JsonArray>();
+  for (int i = 0; i < v.scope_count && i < MQTTNodeConfigView::MAX_SCOPES; i++) {
+    JsonObject s = scopes.add<JsonObject>();
+    s["name"] = v.scopes[i].name;
+    s["flood"] = v.scopes[i].flood;
+    if (v.scopes[i].parent) s["parent"] = v.scopes[i].parent;
+  }
+
+  JsonObject br = root["bridge"].to<JsonObject>();
+  br["enabled"] = v.bridge_enabled;
+  br["delay"] = v.bridge_delay;
+  br["source"] = v.bridge_source;
+  br["baud"] = v.bridge_baud;
+  br["channel"] = v.bridge_channel;
+
+  JsonObject gps = root["gps"].to<JsonObject>();
+  gps["enabled"] = v.gps_enabled;
+  gps["interval"] = v.gps_interval;
+  gps["advert_loc_policy"] = v.advert_loc_policy;
+  if (v.has_location) {
+    gps["lat"] = v.lat;
+    gps["lon"] = v.lon;
+  }
+
+  JsonObject power = root["power"].to<JsonObject>();
+  power["powersaving"] = v.powersaving;
+  power["adc_multiplier"] = v.adc_multiplier;
+
+  JsonObject room = root["room"].to<JsonObject>();
+  room["allow_read_only"] = v.allow_read_only;
+
+  JsonObject mqtt = root["mqtt"].to<JsonObject>();
+  mqtt["status"] = v.mqtt_status;
+  mqtt["packets"] = v.mqtt_packets;
+  mqtt["raw"] = v.mqtt_raw;
+  mqtt["tx"] = v.mqtt_tx;
+  mqtt["rx"] = v.mqtt_rx;
+  mqtt["status_interval"] = v.mqtt_status_interval;
+  mqtt["filter_interval"] = v.mqtt_filter_interval;
+  mqtt["neighbors"] = v.mqtt_neighbors;
+  mqtt["neighbors_interval"] = v.mqtt_neighbors_interval;
+  setIfText(mqtt, "iata", v.mqtt_iata);
+  setIfText(mqtt, "ntp_server", v.ntp_server);
+  mqtt["watchdog_minutes"] = v.watchdog_minutes;
+  JsonArray presets = mqtt["slot_presets"].to<JsonArray>();
+  JsonArray topics = mqtt["slot_topics"].to<JsonArray>();
+  JsonArray filters = mqtt["slot_filters"].to<JsonArray>();
+  for (int i = 0; i < v.slot_count && i < MQTTNodeConfigView::MAX_SLOTS; i++) {
+    presets.add(v.slot_presets[i] ? v.slot_presets[i] : "");
+    topics.add(v.slot_topics[i] ? v.slot_topics[i] : "");
+    filters.add(v.slot_filters[i]);
+  }
+
+  JsonObject tz = root["timezone"].to<JsonObject>();
+  setIfText(tz, "string", v.timezone_string);
+  tz["offset"] = v.timezone_offset;
+
+  JsonObject alert = root["alert"].to<JsonObject>();
+  alert["enabled"] = v.alert_enabled;
+  setIfText(alert, "region", v.alert_region);
+  setIfText(alert, "hashtag", v.alert_hashtag);
+  alert["wifi_minutes"] = v.alert_wifi_minutes;
+  alert["mqtt_minutes"] = v.alert_mqtt_minutes;
+  alert["interval_min"] = v.alert_interval_min;
+
+  JsonObject snmp = root["snmp"].to<JsonObject>();
+  snmp["enabled"] = v.snmp_enabled;
+
+  return serializeFilterStats(root, buffer, buffer_size);
+}
+
 int MQTTMessageBuilder::buildPacketMessage(
   JsonDocument& doc,
   const char* origin,

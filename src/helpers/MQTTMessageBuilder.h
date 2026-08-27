@@ -67,11 +67,94 @@ struct MQTTFilterStatsView {
   uint8_t dc_gate_hysteresis = 0;    // config: recover below (threshold - hysteresis)
 };
 
+// Plain snapshot of the node's non-sensitive configuration for the opt-in
+// `config` topic. Strings may be nullptr/empty (the builder omits those). All
+// values are in the units the JSON publishes (the repeater converts pref
+// encodings before filling this, e.g. advert_interval is already in minutes).
+// Sensitive settings (keys, passwords, WiFi/broker creds, PSKs, email) are never
+// placed here; GPS lat/lon are included only when has_location is set (the node
+// already broadcasts its location via adverts).
+struct MQTTNodeConfigView {
+  static const int MAX_SCOPES = 16;
+  static const int MAX_SLOTS = 6;
+
+  const char* origin = nullptr;
+  const char* origin_id = nullptr;
+  const char* timestamp = nullptr;
+  uint32_t uptime_secs = 0;
+  uint16_t boot_id = 0;
+
+  const char* node_name = nullptr;
+  const char* owner_info = nullptr;   // free text; omitted when empty
+  const char* owner_key = nullptr;    // public companion key; omitted when empty
+  uint16_t advert_interval_min = 0;
+  uint16_t flood_advert_interval_hrs = 0;
+
+  // radio
+  float freq = 0; float bw = 0; uint8_t sf = 0; uint8_t cr = 0;
+  int8_t tx_power = 0; uint8_t cad = 0; uint8_t interference_threshold = 0;
+  uint8_t rxgain = 0; uint8_t fem_rxgain = 0; uint8_t fem_txgain = 0;
+  float airtime_factor = 0; float rx_delay = 0; float tx_delay_factor = 0; float direct_tx_delay_factor = 0;
+  uint16_t agc_reset_interval = 0; uint8_t path_hash_mode = 0; uint8_t multi_acks = 0;
+  uint8_t extra_sf[4] = {};
+
+  // repeat
+  uint8_t disable_fwd = 0; uint8_t flood_max = 0; uint8_t flood_max_unscoped = 0;
+  uint8_t flood_max_advert = 0; uint8_t loop_detect = 0;
+
+  // region gate (config only; live duty/level ride the filter topic)
+  bool rg_enabled = false; uint8_t rg_threshold = 0; uint8_t rg_hysteresis = 0;
+
+  // region scopes tree
+  const char* region_home = nullptr;
+  const char* region_default = nullptr;
+  bool region_wildcard_flood = false;
+  struct Scope { const char* name; bool flood; const char* parent; };
+  Scope scopes[MAX_SCOPES] = {};
+  int scope_count = 0;
+
+  // bridge (secret excluded)
+  uint8_t bridge_enabled = 0; uint16_t bridge_delay = 0; uint8_t bridge_source = 0;
+  uint32_t bridge_baud = 0; uint8_t bridge_channel = 0;
+
+  // gps (lat/lon only when has_location)
+  uint8_t gps_enabled = 0; uint32_t gps_interval = 0; uint8_t advert_loc_policy = 0;
+  bool has_location = false; double lat = 0; double lon = 0;
+
+  // power / room
+  uint8_t powersaving = 0; float adc_multiplier = 0; uint8_t allow_read_only = 0;
+
+  // mqtt publishing (broker host/port/creds excluded)
+  uint8_t mqtt_status = 0, mqtt_packets = 0, mqtt_raw = 0, mqtt_tx = 0, mqtt_rx = 0;
+  uint32_t mqtt_status_interval = 0; uint32_t mqtt_filter_interval = 0;
+  uint8_t mqtt_neighbors = 0; uint32_t mqtt_neighbors_interval = 0;
+  const char* mqtt_iata = nullptr; const char* ntp_server = nullptr;
+  uint8_t watchdog_minutes = 0;
+  const char* slot_presets[MAX_SLOTS] = {};
+  const char* slot_topics[MAX_SLOTS] = {};
+  uint16_t slot_filters[MAX_SLOTS] = {};
+  int slot_count = 0;
+
+  // timezone
+  const char* timezone_string = nullptr; int8_t timezone_offset = 0;
+
+  // alert (psk excluded)
+  uint8_t alert_enabled = 0; const char* alert_region = nullptr; const char* alert_hashtag = nullptr;
+  uint16_t alert_wifi_minutes = 0; uint16_t alert_mqtt_minutes = 0; uint16_t alert_interval_min = 0;
+
+  // snmp (community excluded)
+  uint8_t snmp_enabled = 0;
+};
+
 class MQTTMessageBuilder {
 public:
   // Build the packet-filter drop-statistics JSON (see MSG_FILTER topic).
   static int buildFilterStatsMessage(JsonDocument& doc, const MQTTFilterStatsView& v,
                                      char* buffer, size_t buffer_size);
+
+  // Build the opt-in node-config JSON (see MSG_CONFIG topic).
+  static int buildConfigMessage(JsonDocument& doc, const MQTTNodeConfigView& v,
+                                char* buffer, size_t buffer_size);
 
   // Wire-format scratch sizing and validation live in the pure, host-tested
   // MQTTWireScratch; these are the firmware-facing aliases.
