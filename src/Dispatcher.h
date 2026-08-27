@@ -5,6 +5,7 @@
 #include <Packet.h>
 #include <Utils.h>
 #include <string.h>
+#include "helpers/TxDutyWindow.h"
 
 namespace mesh {
 
@@ -128,6 +129,7 @@ class Dispatcher {
   unsigned long tx_budget_ms;
   unsigned long last_budget_update;
   unsigned long duty_cycle_window_ms;
+  TxDutyWindow _tx_duty;   // rolling-window true TX duty cycle (metric + gate)
 
   void processRecvPacket(Packet* pkt);
   void updateTxBudget();
@@ -152,6 +154,7 @@ protected:
     tx_budget_ms = 0;
     last_budget_update = 0;
     duty_cycle_window_ms = 3600000;
+    _tx_duty.reset(ms.getMillis());
   }
 
   virtual DispatcherAction onRecvPacket(Packet* pkt) = 0;
@@ -183,7 +186,7 @@ public:
   unsigned long getTotalAirTime() const { return total_air_time; }
   unsigned long getReceiveAirTime() const {return rx_air_time; }
   unsigned long getRemainingTxBudget() const { return tx_budget_ms; }
-  uint8_t getTxDutyCyclePercent();   // live TX airtime usage, 0..100 (% of permitted budget)
+  uint8_t getTxDutyCyclePercent();   // true TX duty cycle, 0..100 (% of wall-clock spent transmitting, ~60s window)
   uint32_t getNumSentFlood() const { return n_sent_flood; }
   uint32_t getNumSentDirect() const { return n_sent_direct; }
   uint32_t getNumRecvFlood() const { return n_recv_flood; }
