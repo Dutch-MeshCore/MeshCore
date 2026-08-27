@@ -40,6 +40,7 @@ static const size_t kV1PreObserverPayloadSize = MQTT_PREFS_V1_PRE_OBSERVER_PAYLO
 static const size_t kV1PreNeighborsPayloadSize = MQTT_PREFS_V1_PRE_NEIGHBORS_PAYLOAD_SIZE;
 static const size_t kV1PreFilterPayloadSize = MQTT_PREFS_V1_PRE_FILTER_PAYLOAD_SIZE;
 static const size_t kV1PreFilterStatsPayloadSize = MQTT_PREFS_V1_PRE_FILTERSTATS_PAYLOAD_SIZE;
+static const size_t kV1PreConfigPayloadSize = MQTT_PREFS_V1_PRE_CONFIG_PAYLOAD_SIZE;
 static const size_t kV1BaselinePayloadSize = MQTT_PREFS_V1_FULL_PAYLOAD_SIZE;
 static const size_t kEncodedSize = sizeof(MQTTPrefsHeader) + kV1BaselinePayloadSize;
 
@@ -57,13 +58,15 @@ static const size_t kEncodedSize = sizeof(MQTTPrefsHeader) + kV1BaselinePayloadS
 inline size_t payloadLenFor(const MQTTPrefs& prefs) {
   // The tail is contiguous, so writing a later field forces every earlier
   // optional field to be written too. Emit the shortest length that still
-  // round-trips: a non-default filter-stats interval needs FULL; otherwise a
-  // non-default mask needs PRE_FILTERSTATS; otherwise PRE_FILTER.
+  // round-trips: the mqtt.config flag needs FULL; else a non-default filter-stats
+  // interval needs PRE_CONFIG; else a non-default mask needs PRE_FILTERSTATS;
+  // otherwise PRE_FILTER.
   const bool masks_default = MQTTPacketFilter::allMasksDefault(
       prefs.mqtt_slot_packet_filter, MQTT_PREFS_SLOT_COUNT);
   const bool interval_default =
       (prefs.mqtt_filter_interval == MQTT_FILTER_STATS_DEFAULT_INTERVAL_MS);
-  if (!interval_default) return kV1BaselinePayloadSize;
+  if (prefs.mqtt_config_enabled != 0) return kV1BaselinePayloadSize;
+  if (!interval_default) return kV1PreConfigPayloadSize;
   if (!masks_default) return kV1PreFilterStatsPayloadSize;
   return kV1PreFilterPayloadSize;
 }
@@ -145,6 +148,12 @@ inline DecodePlan classify(const uint8_t* prefix, size_t prefix_read, size_t fil
       }
       if (header.payload_len == kV1BaselinePayloadSize) {
         return {Source::Current, false, false, true, kV1BaselinePayloadSize};
+      }
+      if (header.payload_len == kV1PreConfigPayloadSize) {
+        // Written before the mqtt.config flag tail. Every earlier field (incl. the
+        // filter-stats interval) is present; only the flag is missing, so it keeps
+        // its default (off).
+        return {Source::Current, false, false, true, kV1PreConfigPayloadSize};
       }
       if (header.payload_len == kV1PreFilterStatsPayloadSize) {
         // Written before the filter-stats interval tail. The masks ARE present;

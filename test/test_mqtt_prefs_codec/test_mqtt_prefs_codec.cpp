@@ -235,7 +235,8 @@ TEST(MQTTPrefsCodec, CurrentVersionedPayloadRoundTripsExactly) {
   strncpy(source.alert_region, "PNW", sizeof(source.alert_region) - 1);
   source.mqtt_neighbors_enabled = 1;
   source.mqtt_neighbors_interval = MQTT_NEIGHBORS_MAX_INTERVAL_MS;
-  source.mqtt_filter_interval = 45000;  // non-default -> exercises the FULL payload
+  source.mqtt_filter_interval = 45000;  // non-default
+  source.mqtt_config_enabled = 1;       // opt-in -> exercises the FULL (2884) payload
   for (int i = 0; i < MQTT_PREFS_SLOT_COUNT; ++i) {
     source.mqtt_slot_packet_filter[i] = static_cast<uint16_t>(1u << i);
   }
@@ -317,10 +318,30 @@ TEST(MQTTPrefsCodec, AnyNonDefaultFilterOptsIntoTheLongerPayload) {
   EXPECT_EQ(Codec::kV1PreFilterPayloadSize, Codec::payloadLenFor(source));
 }
 
-TEST(MQTTPrefsCodec, NonDefaultFilterStatsIntervalOptsIntoFullPayload) {
+TEST(MQTTPrefsCodec, NonDefaultFilterStatsIntervalOptsIntoPreConfigPayload) {
   MQTTPrefs source = defaults();
   strncpy(source.wifi_ssid, "home-net", sizeof(source.wifi_ssid) - 1);
-  source.mqtt_filter_interval = 30000;  // non-default -> forces the FULL payload
+  source.mqtt_filter_interval = 30000;  // non-default; config flag default -> PRE_CONFIG (one short of FULL)
+
+  EXPECT_EQ(Codec::kV1PreConfigPayloadSize, Codec::payloadLenFor(source));
+
+  std::vector<uint8_t> bytes(Codec::kEncodedSize);
+  ASSERT_EQ(sizeof(MQTTPrefsHeader) + Codec::kV1PreConfigPayloadSize,
+            Codec::encode(source, bytes.data(), bytes.size()));
+  bytes.resize(sizeof(MQTTPrefsHeader) + Codec::kV1PreConfigPayloadSize);
+  const Codec::DecodePlan plan = classify(bytes);
+  ASSERT_EQ(Codec::kV1PreConfigPayloadSize, plan.payload_len);
+
+  MQTTPrefs loaded = defaults();
+  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  EXPECT_EQ(30000u, loaded.mqtt_filter_interval);
+  EXPECT_EQ(0, memcmp(&source, &loaded, sizeof(source)));
+}
+
+TEST(MQTTPrefsCodec, ConfigFlagOptsIntoFullPayload) {
+  MQTTPrefs source = defaults();
+  strncpy(source.wifi_ssid, "home-net", sizeof(source.wifi_ssid) - 1);
+  source.mqtt_config_enabled = 1;  // opt-in -> forces the FULL (2884) payload
 
   EXPECT_EQ(Codec::kV1BaselinePayloadSize, Codec::payloadLenFor(source));
 
@@ -331,7 +352,28 @@ TEST(MQTTPrefsCodec, NonDefaultFilterStatsIntervalOptsIntoFullPayload) {
 
   MQTTPrefs loaded = defaults();
   memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
-  EXPECT_EQ(30000u, loaded.mqtt_filter_interval);
+  EXPECT_EQ(1, loaded.mqtt_config_enabled);
+  EXPECT_EQ(0, memcmp(&source, &loaded, sizeof(source)));
+}
+
+TEST(MQTTPrefsCodec, PreConfigPayloadDefaultsTheConfigFlag) {
+  // A 2880-byte payload (filter-stats interval present, no config byte) must load
+  // with mqtt_config_enabled defaulted to 0, not left as stale target bytes.
+  MQTTPrefs source = defaults();
+  source.mqtt_filter_interval = 30000;  // keep the interval tail present
+  ASSERT_EQ(Codec::kV1PreConfigPayloadSize, Codec::payloadLenFor(source));
+
+  std::vector<uint8_t> bytes(sizeof(MQTTPrefsHeader) + Codec::kV1PreConfigPayloadSize, 0);
+  ASSERT_EQ(bytes.size(), Codec::encode(source, bytes.data(), bytes.size()));
+
+  MQTTPrefs loaded = defaults();
+  loaded.mqtt_config_enabled = 1;  // stale value the short read must not keep
+  const Codec::DecodePlan plan = classify(bytes);
+  ASSERT_EQ(Codec::kV1PreConfigPayloadSize, plan.payload_len);
+  // The load path defaults the struct before the short read; emulate that here.
+  loaded.mqtt_config_enabled = 0;
+  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  EXPECT_EQ(0, loaded.mqtt_config_enabled);
   EXPECT_EQ(0, memcmp(&source, &loaded, sizeof(source)));
 }
 
@@ -364,11 +406,12 @@ TEST(MQTTPrefsCodec, EncodeRefusesAnOutputBufferShorterThanItsChosenPayload) {
   EXPECT_EQ(short_size, Codec::encode(shortest, bytes.data(), short_size));
   EXPECT_EQ(0u, Codec::encode(shortest, nullptr, bytes.size()));
 
-  // A buffer that fits the short payload is not enough for the long one. A
-  // non-default filter-stats interval is what forces the maximal FULL payload.
+  // A buffer that fits the short payload is not enough for the long one. The
+  // mqtt.config opt-in flag is what forces the maximal FULL payload.
   MQTTPrefs longest = defaults();
   longest.mqtt_slot_packet_filter[0] = 0;
   longest.mqtt_filter_interval = 45000;
+  longest.mqtt_config_enabled = 1;
   EXPECT_EQ(0u, Codec::encode(longest, bytes.data(), short_size));
   EXPECT_EQ(Codec::kEncodedSize, Codec::encode(longest, bytes.data(), bytes.size()));
 }
