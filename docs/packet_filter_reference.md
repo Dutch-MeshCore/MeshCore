@@ -579,7 +579,7 @@ set mqtt.filter.interval <seconds>
 
 Publishes every `<seconds>` (clamped to the 60–600 s band); `0` disables the
 topic. Default **60 s**. Read it with `get mqtt.filter.interval`. The value is
-stored in `/mqtt_prefs`.
+stored in `/mqtt.json`.
 
 ---
 

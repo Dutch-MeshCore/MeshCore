@@ -520,6 +520,7 @@ These settings apply across all MQTT slots:
 - `get mqtt.rx` - Get RX packet uplinking setting (on/off)
 - `get mqtt.tx` - Get TX packet uplinking setting (on/off/advert)
 - `get mqtt.interval` - Get status publish interval
+- `get mqtt.config` - Get the config-topic publish setting (1/0)
 - `get mqtt.neighbors` - Get periodic neighbors publishing setting (on/off; neighbors-enabled builds)
 - `get mqtt.neighbors.interval` - Get neighbors publish interval in hours (neighbors-enabled builds)
 - `get mqtt.ntp` - Get effective NTP server hostname
@@ -539,6 +540,7 @@ These settings apply across all MQTT slots:
   - `advert` - Uplink only this node's own advert packets (self-originated)
   - `off` - Disable TX packet uplinking
 - `set mqtt.interval <minutes>` - Set status publish interval (1-60 minutes)
+- `set mqtt.config on|off` - Enable/disable publishing the node config to the `config` topic (off by default)
 - `set mqtt.neighbors on|off` - Enable/disable periodic neighbors publishing (neighbors-enabled builds; read live, no restart)
 - `set mqtt.neighbors.interval <hours>` - Set neighbors publish interval (12-336 hours, default 24; neighbors-enabled builds)
 - `set mqtt.ntp <hostname>` - Set custom NTP server (validated with immediate sync); `none` reverts to default
@@ -706,7 +708,7 @@ native`); see [test/README.md](test/README.md) for the suites and how to run the
 
 ## MQTT Topics
 
-The bridge publishes to four main topics with the following structure:
+The bridge publishes to the following topics:
 
 ### Status Topic: `meshcore/{IATA}/{DEVICE_PUBLIC_KEY}/status`
 Device connection status and metadata, QoS 1. Retained, except on presets whose broker rejects the retain flag (`meshrank`, `waev`).
@@ -732,6 +734,15 @@ Manual `discover.scopes` normally queries the current cache in one shot. If a `d
 While `mqtt.neighbors` is on, `get mqtt.status` appends `nbr: <next>/<last>` — time to the next automatic publish (`3h12m`, `12m`, `45s`, or `active`/`due`) and the last publish result (`ok`, `failed`, or `none`).
 
 **Note**: `{DEVICE_PUBLIC_KEY}` is the device's public key in hexadecimal format (64 characters). MeshRank slots use `meshrank/uplink/{token}/{DEVICE_PUBLIC_KEY}/neighbors` instead.
+
+### Config Topic: `meshcore/{IATA}/{DEVICE_PUBLIC_KEY}/config`
+
+The node's full non-sensitive configuration: identity and advert intervals, the
+radio block (frequency, bandwidth, SF, CR, TX power, CAD, gains, delays, AGC,
+path-hash mode, multi-acks, extra SFs), repeat limits, region-gate state, and the
+region/scope table. Opt-in and off by default: enable with `set mqtt.config on`.
+
+No credentials, keys, or WiFi settings are included. `owner_key` is a public key.
 
 ## JSON Message Formats
 

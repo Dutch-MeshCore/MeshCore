@@ -1427,6 +1427,20 @@ region save
 
 ---
 
+#### Publish the node config to MQTT (MQTT observer)
+**Usage:**
+- `get mqtt.config`
+- `set mqtt.config <on|off>`
+
+**Parameters:**
+- `on` / `1`: publish this node's configuration to the `config` MQTT topic. Anything else disables it.
+
+**Default:** `off`
+
+**Description:** Publishes the node's non-sensitive configuration as one JSON message on the `config` topic: identity and advert intervals, the radio block, repeat limits, region-gate state, and the region/scope table. No credentials, keys, or WiFi settings are included; `owner_key` is a public key. Opt-in, so a node publishes nothing until this is enabled. Stored in `/mqtt.json`.
+
+---
+
 #### View or change the filter-stats publish interval (MQTT observer)
 **Usage:**
 - `get mqtt.filter.interval`
@@ -1437,7 +1451,7 @@ region save
 
 **Default:** `60` (seconds)
 
-**Description:** Publishes the full packet-filter drop-counter set plus per-type configuration as one JSON message on the `filter` topic, for live analyzer monitoring. See [packet_filter_reference.md](packet_filter_reference.md#publishing-statistics-over-mqtt-observer-builds). Changing it restarts the bridge. Stored in `/mqtt_prefs`.
+**Description:** Publishes the full packet-filter drop-counter set plus per-type configuration as one JSON message on the `filter` topic, for live analyzer monitoring. See [packet_filter_reference.md](packet_filter_reference.md#publishing-statistics-over-mqtt-observer-builds). Changing it restarts the bridge. Stored in `/mqtt.json`.
 
 ---
 

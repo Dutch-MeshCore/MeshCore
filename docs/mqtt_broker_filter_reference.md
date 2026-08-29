@@ -155,7 +155,7 @@ set mqtt3.filter none
 Per-slot filters are stored with the rest of the MQTT settings in:
 
 ```text
-/mqtt_prefs
+/mqtt.json
 ```
 
 The setting persists across reboots and is applied on the next connection to each slot.
