@@ -215,6 +215,66 @@ whole Airtime tab is bare, suspect the `filter` topic rather than the panels.
 Note that changing the interval restarts the bridge, so expect a brief
 disconnect in the roster.
 
+### 4.25 [critical] Extension topics go only where they belong
+
+`filter` and `config` are DMC-only topics. Before this build they were published
+to **every** connected broker, so a node feeding both a DMC collector and a
+community broker was pushing DMC topics at the community one, and `mqtt.config`
+was a single global switch that opted you in everywhere at once.
+
+Each slot now carries a mask over just those two topics.
+
+```
+get mqtt1.extras
+get mqtt2.extras
+```
+
+On an **upgraded** node the mask is derived from each slot's preset during the
+migration, so expect:
+
+- a slot on `dutchmeshcore-1` / `dutchmeshcore-2` or `custom` -> `all`
+- a slot on any community preset (`meshcore-analyzer-eu`, `analyzer-us`, ...)
+  -> `none`
+
+That is the fix taking effect: a node that was pushing DMC topics at a community
+broker stops doing so on this firmware's first boot, with no operator action.
+Confirm it reads that way rather than `all` everywhere.
+
+Then check the mask is re-derived when a preset is assigned:
+
+```
+set mqtt2.preset analyzer-eu
+get mqtt2.extras          -> none
+set mqtt1.preset dutchmeshcore-1
+get mqtt1.extras          -> all
+```
+
+And that it is directly settable:
+
+```
+set mqtt2.extras filter
+get mqtt2.extras          -> filter
+set mqtt2.extras none
+get mqtt2.extras          -> none
+```
+
+Reboot and confirm the values persist (they live in `/mqtt.json`).
+
+**The behavioural check that matters**, if you can watch a second broker: with
+`mqtt2.extras none` and `set mqtt.config on`, the `config` topic must appear on
+slot 1's broker and **not** on slot 2's. The admin live-MQTT console on
+observers.elektrovodka.nl is one way to see what a given broker is actually
+receiving.
+
+**Existing deployments** need no sweep: the derivation runs on the migration
+path, so upgrading is sufficient. If a slot still reports `all` against a
+community preset after upgrading, that is a bug worth reporting, not a
+configuration task.
+
+**Deliberate opt-in still works.** If you actually want a community broker to
+receive DMC topics, `set mqttN.extras all` after choosing the preset; an explicit
+value is preserved across reboots and later upgrades.
+
 ### 4.3 Config topic
 
 Off by default, so nothing publishes until you opt in:
@@ -223,6 +283,11 @@ Off by default, so nothing publishes until you opt in:
 get mqtt.config
 set mqtt.config on
 ```
+
+`mqtt.config` is the global switch; which brokers actually receive the topic is
+now decided per slot by `mqttN.extras` (section 4.25). Community-broker slots
+derive to `none`, so enabling this no longer publishes your node config to every
+broker you feed.
 
 Then, as an operator who owns this node, look at two tabs:
 

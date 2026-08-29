@@ -350,6 +350,7 @@ Each slot (1-6) supports the following commands:
 - `get mqttN.topic` - Get custom topic template for slot N
 - `get mqttN.audience` - Get JWT audience for slot N (custom slots only)
 - `get mqttN.filter` - Get the slot's packet-type allowlist (`all`, `none`, or numeric CSV)
+- `get mqttN.extras` - Which DMC extension topics this slot receives (`none`/`filter`/`config`/`all`)
 
 #### Set Commands
 - `set mqttN.preset <name>` - Set slot N to a built-in preset. Use any `name` from [Broker Presets](#broker-presets), which also lists the few presets needing extra setup.
@@ -364,6 +365,7 @@ Each slot (1-6) supports the following commands:
 - `set mqttN.audience <audience>` - Set JWT audience for custom slot (enables Ed25519 JWT auth)
 - `set mqttN.audience` - Clear JWT audience (reverts to username/password auth)
 - `set mqttN.filter <all|none|list>` - Select payload types uploaded to this slot
+- `set mqttN.extras none|filter|config|all` - Which DMC extension topics this slot receives
 
 **Note:** Custom server/port settings only apply when the slot's preset is `custom`. Username/password also apply to built-in presets that use per-slot credentials (e.g. `inwmesh`); other userpass presets (`tennmesh`, `nashmesh`, `ctmesh`) ship fixed credentials in firmware.
 
@@ -489,6 +491,52 @@ set mqtt3.topic mynetwork/{device}/{type}
 When the server is given as a full URL with a scheme (`mqtt://`, `mqtts://`, `ws://`,
 `wss://`), `set mqttN.port` is optional — an explicit port in the URL is used as-is, and
 without one the scheme's default port applies.
+
+### Per-Slot Extension Topics
+
+`filter` and `config` are **DMC extensions**. No community broker consumes them,
+so publishing them to one is wasted airtime and wasted broker budget, and
+`config` additionally discloses the node's settings to an operator who never
+asked for them.
+
+Each slot therefore carries a mask over just those two topics:
+
+```bash
+get mqtt2.extras            # -> none
+set mqtt2.extras none       # neither
+set mqtt1.extras all        # both
+set mqtt1.extras filter     # filter only
+set mqtt3.extras config     # config only
+```
+
+The standard topics (`status`, `packets`, `raw`, `neighbors`) are not maskable
+here; they have their own global toggles and every broker expects them.
+
+**Defaults are derived from the slot's preset**, not stored blindly: DMC
+collectors (`dutchmeshcore-*`) and `custom` get both topics, every other preset
+gets neither. That derivation runs in three places, so every route to a
+configured node lands on the same answer:
+
+- fresh install, from the compile-time default presets;
+- migration off the old binary `/mqtt_prefs`, from the presets it carried;
+- any `/mqtt.json` written before this key existed, from the stored preset.
+
+**On upgrade this takes effect immediately.** A node already feeding a community
+broker stops sending it `filter` and `config` on the first boot of this
+firmware, with no operator action. A node feeding only DMC collectors sees no
+change.
+
+Assigning a preset re-derives the slot's mask, so reconfiguring a slot also does
+the right thing. An explicit `set mqttN.extras` always wins and is preserved
+across reboots and upgrades.
+
+If you deliberately want a community broker to receive DMC topics, say so
+explicitly after choosing the preset:
+
+```bash
+set mqtt2.preset analyzer-eu
+set mqtt2.extras all
+```
 
 ### Custom Topic Templates
 

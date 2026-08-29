@@ -534,6 +534,11 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
           sprintf(reply, "Error: preset '%s' is already assigned to slot %d", preset_name, dup_slot + 1);
         } else {
           StrHelper::strncpy(_mqtt_prefs.mqtt_slot_preset[slot], preset_name, sizeof(_mqtt_prefs.mqtt_slot_preset[slot]));
+          // Re-derive the DMC extension-topic mask for this slot. `filter` and
+          // `config` are DMC-only topics; pointing a slot at a community broker
+          // must not start pushing them there. An operator who wants them anyway
+          // can set mqttN.extras afterwards.
+          _mqtt_prefs.mqtt_slot_extras[slot] = mqttDefaultExtrasForPreset(preset_name);
           if (!persistObserverPrefs(reply)) return true;
           _callbacks->restartBridgeSlot(slot);
           // Check if the slot has everything it needs to connect
@@ -678,6 +683,21 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
           }
         }
       }
+    } else if (memcmp(subcmd, "extras ", 7) == 0) {
+      // Which DMC extension topics this slot receives: none | filter | config | all.
+      const char* v = &subcmd[7];
+      uint8_t mask;
+      if (strcmp(v, "none") == 0)        mask = MQTT_SLOT_EXTRAS_NONE;
+      else if (strcmp(v, "filter") == 0) mask = MQTT_SLOT_EXTRA_FILTER;
+      else if (strcmp(v, "config") == 0) mask = MQTT_SLOT_EXTRA_CONFIG;
+      else if (strcmp(v, "all") == 0)    mask = MQTT_SLOT_EXTRAS_ALL;
+      else {
+        strcpy(reply, "Error: extras must be none|filter|config|all");
+        return true;
+      }
+      _mqtt_prefs.mqtt_slot_extras[slot] = mask;
+      savePrefs();
+      sprintf(reply, "OK - slot %d extras %s", slot + 1, v);
     } else {
       sprintf(reply, "unknown config: %s", config);
     }
@@ -1044,6 +1064,14 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
       } else {
         strcpy(reply, "> (not set - custom slots use username/password auth)");
       }
+    } else if (strcmp(subcmd, "extras") == 0) {
+      const uint8_t m = _mqtt_prefs.mqtt_slot_extras[slot];
+      const char* text = (m == MQTT_SLOT_EXTRAS_ALL)   ? "all"
+                       : (m == MQTT_SLOT_EXTRAS_NONE)  ? "none"
+                       : (m == MQTT_SLOT_EXTRA_FILTER) ? "filter"
+                       : (m == MQTT_SLOT_EXTRA_CONFIG) ? "config"
+                                                       : "invalid";
+      sprintf(reply, "> %s", text);
     } else if (strcmp(subcmd, "filter") == 0) {
       char filter_text[MQTTPacketFilter::kFilterTextSize];
       if (MQTTPacketFilter::format(_mqtt_prefs.mqtt_slot_packet_filter[slot],

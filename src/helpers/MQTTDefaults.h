@@ -113,6 +113,12 @@ static inline void applyMQTTDefaults(MQTTPrefs* prefs) {
   // Packet-filter drop statistics publish at this interval; the default is a
   // valid 60s (not 0/off) so a defaulted tail keeps an in-lineage upgrade sane.
   prefs->mqtt_filter_interval = MQTT_FILTER_STATS_DEFAULT_INTERVAL_MS;
+  // Derived from each slot's preset rather than blanket-on: `filter` and
+  // `config` are DMC topics, so a slot pointed at a community broker must not
+  // receive them. Runs after the slot presets above are set.
+  for (int i = 0; i < MQTT_PREFS_SLOT_COUNT; i++) {
+    prefs->mqtt_slot_extras[i] = mqttDefaultExtrasForPreset(prefs->mqtt_slot_preset[i]);
+  }
   prefs->display_timeout_secs = DISPLAY_TIMEOUT_DEFAULT_SECS;
   prefs->display_flip = 0;
 }

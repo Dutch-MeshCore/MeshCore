@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 // /mqtt_prefs is a raw binary persistence format. Keep the layout-only types
 // independent from CommonCLI so the migration decoder can be tested on the host
@@ -127,6 +128,19 @@ struct MQTTPrefs {
   // 1 = publish. Also in LegacyV1MQTTPrefs, for the same migration reason.
   uint8_t mqtt_config_enabled;
 
+  // Per-slot mask over the DMC EXTENSION topics, so a node feeding several
+  // brokers does not push DMC-specific topics at community brokers that have no
+  // consumer for them. Bit 0 = `filter`, bit 1 = `config`. The standard topics
+  // (status/packets/raw/neighbors) are not maskable here: they have their own
+  // global toggles and every broker expects them.
+  //
+  // Defaults to MQTT_SLOT_EXTRAS_ALL so an upgrading node keeps publishing
+  // exactly what it published before. Assigning a preset re-derives it (see
+  // mqttDefaultExtrasForPreset), so any slot configured from then on gets the
+  // right answer without operator action. Runtime only; the frozen binary
+  // layout is unchanged.
+  uint8_t mqtt_slot_extras[MQTT_PREFS_SLOT_COUNT];
+
   // Seconds of inactivity before the display blanks; 0 keeps it lit. Runtime
   // only - deliberately absent from LegacyV1MQTTPrefs, so the frozen binary
   // layout and its four payload sizes are unchanged.
@@ -136,6 +150,26 @@ struct MQTTPrefs {
   // mounted the other way up. Runtime only, like display_timeout_secs.
   uint8_t display_flip;
 };
+
+// Per-slot DMC extension-topic mask (MQTTPrefs::mqtt_slot_extras).
+static const uint8_t MQTT_SLOT_EXTRA_FILTER = 0x01;
+static const uint8_t MQTT_SLOT_EXTRA_CONFIG = 0x02;
+static const uint8_t MQTT_SLOT_EXTRAS_ALL   = MQTT_SLOT_EXTRA_FILTER | MQTT_SLOT_EXTRA_CONFIG;
+static const uint8_t MQTT_SLOT_EXTRAS_NONE  = 0x00;
+
+// `filter` and `config` are DMC extensions: no community broker consumes them,
+// and publishing them there is wasted airtime, wasted broker budget, and (for
+// `config`) an unintended disclosure of the node's settings. A slot pointed at a
+// DMC collector or at the operator's own broker gets them; anything else does
+// not. Kept as a pure function of the preset name so it can be host-tested.
+static inline uint8_t mqttDefaultExtrasForPreset(const char* preset_name) {
+  if (preset_name == nullptr || preset_name[0] == '\0') return MQTT_SLOT_EXTRAS_NONE;
+  // The operator's own broker: they decide what it consumes, so default to on.
+  if (strcmp(preset_name, "custom") == 0) return MQTT_SLOT_EXTRAS_ALL;
+  // DMC collectors: dutchmeshcore-1, dutchmeshcore-2, ...
+  if (strncmp(preset_name, "dutchmeshcore", 13) == 0) return MQTT_SLOT_EXTRAS_ALL;
+  return MQTT_SLOT_EXTRAS_NONE;
+}
 
 static const uint16_t DISPLAY_TIMEOUT_DEFAULT_SECS = 60;
 static const uint16_t DISPLAY_TIMEOUT_MAX_SECS = 3600;

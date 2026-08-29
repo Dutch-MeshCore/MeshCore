@@ -538,6 +538,12 @@ inline void migrateV1(const LegacyV1MQTTPrefs& old_prefs, size_t payload_len,
   if (payload_len >= kV1BaselinePayloadSize) {
     prefs->mqtt_config_enabled = old_prefs.mqtt_config_enabled;
   }
+  // The binary format predates per-slot extension topics, so derive them from
+  // the presets just copied. Without this a node migrating off /mqtt_prefs
+  // would keep pushing `filter` and `config` at every configured broker.
+  for (int i = 0; i < MQTT_PREFS_SLOT_COUNT; i++) {
+    prefs->mqtt_slot_extras[i] = mqttDefaultExtrasForPreset(prefs->mqtt_slot_preset[i]);
+  }
 }
 
 inline void migratePreSlot(const OldMQTTPrefs& old_prefs, MQTTPrefs* prefs) {

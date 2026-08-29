@@ -2549,6 +2549,16 @@ bool MQTTBridge::substituteTopicTemplate(const char* tmpl, MQTTMessageType type,
                                    buf, buf_size);
 }
 
+// slotAllowsExtra: may this slot receive a DMC extension topic (`filter`,
+// `config`)? These are DMC-specific: community brokers have no consumer for
+// them, so publishing there is wasted airtime and broker budget, and `config`
+// additionally discloses the node's settings to an operator who never asked for
+// them. Standard topics are not routed through here.
+bool MQTTBridge::slotAllowsExtra(int index, uint8_t extra_bit) const {
+  if (!_obs || index < 0 || index >= RUNTIME_MQTT_SLOTS) return false;
+  return (_obs->mqtt_slot_extras[index] & extra_bit) != 0;
+}
+
 bool MQTTBridge::buildTopicForSlot(int index, MQTTMessageType type, char* topic_buf, size_t buf_size) {
   static_assert(
       static_cast<int>(MSG_STATUS) == MQTT_PUBLICATION_STATUS &&
@@ -3864,7 +3874,8 @@ bool MQTTBridge::publishFilterStats() {
   bool published = false;
   char topic[128];
   for (int i = 0; i < RUNTIME_MQTT_SLOTS; i++) {
-    if (_slots[i].enabled && _slots[i].client && _slots[i].connected) {
+    if (_slots[i].enabled && _slots[i].client && _slots[i].connected &&
+        slotAllowsExtra(i, MQTT_SLOT_EXTRA_FILTER)) {
       if (buildTopicForSlot(i, MSG_FILTER, topic, sizeof(topic))) {
         // Periodic snapshot: QoS 0, retained where the broker allows, matching
         // the status/neighbors publish policy.
@@ -3900,7 +3911,8 @@ bool MQTTBridge::publishConfig() {
   bool published = false;
   char topic[128];
   for (int i = 0; i < RUNTIME_MQTT_SLOTS; i++) {
-    if (_slots[i].enabled && _slots[i].client && _slots[i].connected) {
+    if (_slots[i].enabled && _slots[i].client && _slots[i].connected &&
+        slotAllowsExtra(i, MQTT_SLOT_EXTRA_CONFIG)) {
       if (buildTopicForSlot(i, MSG_CONFIG, topic, sizeof(topic))) {
         bool use_retain = _slots[i].preset ? _slots[i].preset->allow_retain : false;
         if (publishToSlot(i, topic, _config_json_buffer, _config_publish_len, use_retain, 0)) {

@@ -195,10 +195,11 @@ class MQTTPrefsSerializer : public ConfigSerializer {
   class SlotPrefs : public ConfigSerializer {
     MQTTPrefs* _prefs;
     int _index;
-    int32_t _port, _filter;
+    int32_t _port, _filter, _extras;
     bool _seen_preset = false, _seen_host = false, _seen_port = false;
     bool _seen_username = false, _seen_password = false, _seen_token = false;
     bool _seen_topic = false, _seen_audience = false, _seen_filter = false;
+    bool _seen_extras = false;
   protected:
     void structure() override {
       defStrict("preset", _prefs->mqtt_slot_preset[_index],
@@ -221,10 +222,22 @@ class MQTTPrefsSerializer : public ConfigSerializer {
   public:
     SlotPrefs(MQTTPrefs* prefs, int index)
         : _prefs(prefs), _index(index), _port(prefs->mqtt_slot_port[index]),
-          _filter(prefs->mqtt_slot_packet_filter[index]) {}
+          _filter(prefs->mqtt_slot_packet_filter[index]),
+          _extras(prefs->mqtt_slot_extras[index]) {}
     void apply(bool* repaired) {
       if (_port < 0 || _port > 65535) { _port = 0; *repaired = true; }
       if (_filter < 0 || _filter > 65535) { _filter = 0xffff; *repaired = true; }
+      // A config written before this key existed has no opinion, so derive from
+      // the slot's preset: that is what stops an already-deployed node carrying
+      // on publishing DMC topics at a community broker after the upgrade.
+      if (!_seen_extras) {
+        _extras = mqttDefaultExtrasForPreset(_prefs->mqtt_slot_preset[_index]);
+      } else if (_extras < 0 || _extras > MQTT_SLOT_EXTRAS_ALL) {
+        // Corrupt stored value: fall back to the preset default rather than to
+        // all-on, so a damaged file cannot re-open the leak.
+        _extras = mqttDefaultExtrasForPreset(_prefs->mqtt_slot_preset[_index]);
+        *repaired = true;
+      }
       const char* preset = _prefs->mqtt_slot_preset[_index];
       if (strcmp(preset, MQTT_PRESET_NONE) != 0 &&
           strcmp(preset, MQTT_PRESET_CUSTOM) != 0 && findMQTTPreset(preset) == nullptr) {
@@ -233,6 +246,7 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       }
       _prefs->mqtt_slot_port[_index] = static_cast<uint16_t>(_port);
       _prefs->mqtt_slot_packet_filter[_index] = static_cast<uint16_t>(_filter);
+      _prefs->mqtt_slot_extras[_index] = static_cast<uint8_t>(_extras);
     }
   };
 
