@@ -161,6 +161,7 @@ below documents the current build.
 | `atvirastinklas` | `wss://mqtt-mc.atvirastinklas.lt:443` | JWT | — |
 | `gomesh` | `wss://mqtt.gomesh.dev:443` | JWT | — |
 | `idahomesh` | `wss://mqtt.idahomesh.org:443/mqtt` | JWT | — |
+| `ntxmesh` | `wss://ntxmesh.dhovin.me:8883` | JWT | — |
 | `custom` | your own broker | User/pass, or JWT when `mqttN.audience` is set | `set mqttN.server` (see [custom broker setup](#custom-brokers)) |
 | `none` | (slot disabled) | — | — |
 
@@ -285,7 +286,7 @@ flash regardless of target.
 
 #### Compile-time fresh-install defaults (`src/helpers/MQTTDefaults.h`)
 
-Optional PlatformIO `build_flags` override defaults written when `/mqtt_prefs` is first created. They do **not** change existing saved prefs on upgrade or reflash (unless `/mqtt_prefs` is erased).
+Optional PlatformIO `build_flags` override defaults used when `/mqtt.json` is first created. They do **not** change existing saved prefs on upgrade or reflash (unless `/mqtt.json` is erased).
 
 | Macro | Default | Notes |
 |-------|---------|-------|

@@ -29,6 +29,7 @@ MQTTPrefs defaults() {
   prefs.alert_wifi_minutes = 30;
   prefs.alert_mqtt_minutes = 240;
   prefs.alert_min_interval_min = 60;
+  prefs.mqtt_neighbors_interval = MQTT_NEIGHBORS_DEFAULT_INTERVAL_MS;
   return prefs;
 }
 
@@ -58,6 +59,21 @@ Codec::DecodePlan classify(const std::vector<uint8_t>& bytes) {
   const size_t prefix_size = bytes.size() < sizeof(MQTTPrefsHeader)
       ? bytes.size() : sizeof(MQTTPrefsHeader);
   return Codec::classify(bytes.data(), prefix_size, bytes.size());
+}
+
+void writeV1Payload(std::vector<uint8_t>* bytes, const MQTTPrefs& prefs, size_t payload_len) {
+  LegacyV1MQTTPrefs frozen;
+  Codec::freezeV1(prefs, &frozen);
+  ASSERT_GE(bytes->size(), sizeof(MQTTPrefsHeader) + payload_len);
+  memcpy(bytes->data() + sizeof(MQTTPrefsHeader), &frozen, payload_len);
+}
+
+MQTTPrefs decodeV1(const std::vector<uint8_t>& bytes, const Codec::DecodePlan& plan) {
+  LegacyV1MQTTPrefs frozen = {};
+  memcpy(&frozen, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  MQTTPrefs loaded = defaults();
+  Codec::migrateV1(frozen, plan.payload_len, &loaded);
+  return loaded;
 }
 
 void fillHighEntropy(std::vector<uint8_t>* bytes) {
@@ -247,8 +263,7 @@ TEST(MQTTPrefsCodec, CurrentVersionedPayloadRoundTripsExactly) {
   ASSERT_EQ(Codec::Source::Current, plan.source);
   ASSERT_FALSE(plan.preserve_file);
   ASSERT_TRUE(plan.observer_fields_present);
-  MQTTPrefs loaded = defaults();
-  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  MQTTPrefs loaded = decodeV1(bytes, plan);
   EXPECT_EQ(0, memcmp(&source, &loaded, sizeof(source)));
 }
 
@@ -280,8 +295,7 @@ TEST(MQTTPrefsCodec, DefaultFiltersKeepTheDowngradeReadablePayloadLength) {
   ASSERT_EQ(Codec::kV1PreFilterPayloadSize, plan.payload_len);
   ASSERT_FALSE(plan.preserve_file);
 
-  MQTTPrefs loaded = defaults();
-  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  MQTTPrefs loaded = decodeV1(bytes, plan);
   EXPECT_EQ(0, memcmp(&source, &loaded, sizeof(source)));
 }
 
@@ -307,8 +321,7 @@ TEST(MQTTPrefsCodec, AnyNonDefaultFilterOptsIntoTheLongerPayload) {
       const Codec::DecodePlan plan = classify(bytes);
       ASSERT_EQ(expected_len, plan.payload_len);
 
-      MQTTPrefs loaded = defaults();
-      memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+      MQTTPrefs loaded = decodeV1(bytes, plan);
       EXPECT_EQ(mask, loaded.mqtt_slot_packet_filter[slot]) << slot;
       EXPECT_EQ(0, memcmp(&source, &loaded, sizeof(source)));
     }
@@ -428,7 +441,7 @@ TEST(MQTTPrefsCodec, PreFilterV1PayloadDefaultsEverySlotToAllTypes) {
   std::vector<uint8_t> bytes(sizeof(MQTTPrefsHeader) + Codec::kV1PreFilterPayloadSize, 0);
   writeHeader(&bytes, MQTT_PREFS_VERSION,
               static_cast<uint16_t>(Codec::kV1PreFilterPayloadSize));
-  memcpy(bytes.data() + sizeof(MQTTPrefsHeader), &source, Codec::kV1PreFilterPayloadSize);
+  writeV1Payload(&bytes, source, Codec::kV1PreFilterPayloadSize);
 
   const Codec::DecodePlan plan = classify(bytes);
   ASSERT_EQ(Codec::Source::Current, plan.source);
@@ -436,8 +449,7 @@ TEST(MQTTPrefsCodec, PreFilterV1PayloadDefaultsEverySlotToAllTypes) {
   ASSERT_TRUE(plan.observer_fields_present);
   ASSERT_FALSE(plan.preserve_file);
 
-  MQTTPrefs loaded = defaults();
-  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  MQTTPrefs loaded = decodeV1(bytes, plan);
   EXPECT_STREQ("pre-filter-node", loaded.mqtt_origin);
   EXPECT_EQ(1u, loaded.mqtt_neighbors_enabled);
   EXPECT_EQ(MQTT_NEIGHBORS_MAX_INTERVAL_MS, loaded.mqtt_neighbors_interval);
@@ -458,7 +470,7 @@ TEST(MQTTPrefsCodec, CompatibleShortV1PayloadPreservesDefaultsBeyondObserverBoun
   std::vector<uint8_t> bytes(sizeof(MQTTPrefsHeader) + Codec::kV1PreObserverPayloadSize, 0);
   writeHeader(&bytes, MQTT_PREFS_VERSION,
               static_cast<uint16_t>(Codec::kV1PreObserverPayloadSize));
-  memcpy(bytes.data() + sizeof(MQTTPrefsHeader), &source, Codec::kV1PreObserverPayloadSize);
+  writeV1Payload(&bytes, source, Codec::kV1PreObserverPayloadSize);
 
   const Codec::DecodePlan plan = classify(bytes);
   ASSERT_EQ(Codec::Source::Current, plan.source);
@@ -466,8 +478,7 @@ TEST(MQTTPrefsCodec, CompatibleShortV1PayloadPreservesDefaultsBeyondObserverBoun
   ASSERT_FALSE(plan.preserve_file);
   ASSERT_FALSE(plan.observer_fields_present);
 
-  MQTTPrefs loaded = defaults();
-  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  MQTTPrefs loaded = decodeV1(bytes, plan);
   EXPECT_STREQ("short-v1-node", loaded.mqtt_origin);
   EXPECT_STREQ("ntp.short.example", loaded.mqtt_ntp_server);
   EXPECT_EQ(0, loaded.snmp_enabled);
@@ -490,7 +501,7 @@ TEST(MQTTPrefsCodec, PreNeighborsV1PayloadLoadsObserverFieldsAndDefaultsNeighbor
   std::vector<uint8_t> bytes(sizeof(MQTTPrefsHeader) + Codec::kV1PreNeighborsPayloadSize, 0);
   writeHeader(&bytes, MQTT_PREFS_VERSION,
               static_cast<uint16_t>(Codec::kV1PreNeighborsPayloadSize));
-  memcpy(bytes.data() + sizeof(MQTTPrefsHeader), &source, Codec::kV1PreNeighborsPayloadSize);
+  writeV1Payload(&bytes, source, Codec::kV1PreNeighborsPayloadSize);
 
   const Codec::DecodePlan plan = classify(bytes);
   ASSERT_EQ(Codec::Source::Current, plan.source);
@@ -498,10 +509,7 @@ TEST(MQTTPrefsCodec, PreNeighborsV1PayloadLoadsObserverFieldsAndDefaultsNeighbor
   ASSERT_FALSE(plan.preserve_file);
   ASSERT_TRUE(plan.observer_fields_present);
 
-  MQTTPrefs loaded = defaults();
-  loaded.mqtt_neighbors_enabled = 1;                                   // pretend stale
-  loaded.mqtt_neighbors_interval = MQTT_NEIGHBORS_DEFAULT_INTERVAL_MS;  // caller's defaulted tail
-  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  MQTTPrefs loaded = decodeV1(bytes, plan);
 
   EXPECT_STREQ("pre-neighbors-node", loaded.mqtt_origin);
   EXPECT_STREQ("PNW", loaded.alert_region);
@@ -565,6 +573,34 @@ TEST(MQTTPrefsCodec, CorruptOrShortVersionedInputsArePreserved) {
   EXPECT_TRUE(plan.preserve_file);
 }
 
+TEST(MQTTPrefsCodec, HeaderValidV1StillRequiresBoundedPayloadStrings) {
+  MQTTPrefs source = defaults();
+  LegacyV1MQTTPrefs frozen;
+  Codec::freezeV1(source, &frozen);
+  ASSERT_TRUE(Codec::isPlausibleV1(frozen, Codec::kV1BaselinePayloadSize));
+
+  memset(frozen.mqtt_slot_topic[5], 'x', sizeof(frozen.mqtt_slot_topic[5]));
+  EXPECT_FALSE(Codec::isPlausibleV1(frozen, Codec::kV1BaselinePayloadSize));
+}
+
+TEST(MQTTPrefsCodec, HeaderValidV1AllowsNumericValuesForSerializerRepair) {
+  MQTTPrefs source = defaults();
+  LegacyV1MQTTPrefs frozen;
+  Codec::freezeV1(source, &frozen);
+
+  // A valid v1 header fixes the layout. Numeric bytes cannot trigger an
+  // out-of-bounds read and are normalized after migration, so plausibility
+  // must not reject deployed files merely because these values need repair.
+  frozen.timezone_offset = 99;
+  frozen.mqtt_status_enabled = 0xff;
+  frozen.mqtt_rx_enabled = 0xff;
+  frozen.snmp_enabled = 0xff;
+  frozen.alert_enabled = 0xff;
+  frozen.mqtt_neighbors_enabled = 0xa5;
+  EXPECT_TRUE(Codec::isPlausibleV1(frozen, Codec::kV1BaselinePayloadSize));
+  EXPECT_TRUE(Codec::isPlausibleV1(frozen, Codec::kV1PreNeighborsPayloadSize));
+}
+
 TEST(MQTTPrefsCodec, LegacyPlausibilityRejectsHighEntropyBytesAtEveryWhitelistedSize) {
   // A headerless raw struct has no checksum, so this only reduces false
   // migrations; it cannot prove that a plausible-looking file is authentic.
@@ -621,7 +657,9 @@ TEST(MQTTPrefsCodec, LongerSameVersionPayloadLoadsTheBaselineAndIgnoresTheTail) 
   const size_t payload_len = Codec::kV1BaselinePayloadSize + kTail;
   std::vector<uint8_t> bytes(sizeof(MQTTPrefsHeader) + payload_len, 0xA5);
   writeHeader(&bytes, MQTT_PREFS_VERSION, static_cast<uint16_t>(payload_len));
-  memcpy(bytes.data() + sizeof(MQTTPrefsHeader), &source, sizeof(source));
+  LegacyV1MQTTPrefs frozen;
+  Codec::freezeV1(source, &frozen);
+  memcpy(bytes.data() + sizeof(MQTTPrefsHeader), &frozen, sizeof(frozen));
 
   const Codec::DecodePlan plan = classify(bytes);
   ASSERT_EQ(Codec::Source::Current, plan.source);
@@ -632,9 +670,11 @@ TEST(MQTTPrefsCodec, LongerSameVersionPayloadLoadsTheBaselineAndIgnoresTheTail) 
 
   // Reading plan.payload_len bytes recovers this build's whole struct exactly,
   // and cannot run past it into the unknown tail.
+  LegacyV1MQTTPrefs loaded_frozen = {};
+  memcpy(&loaded_frozen, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
+  ASSERT_TRUE(Codec::isPlausibleV1(loaded_frozen, plan.payload_len));
   MQTTPrefs loaded = defaults();
-  memcpy(&loaded, bytes.data() + sizeof(MQTTPrefsHeader), plan.payload_len);
-  EXPECT_EQ(0, memcmp(&source, &loaded, sizeof(source)));
+  Codec::migrateV1(loaded_frozen, plan.payload_len, &loaded);
   EXPECT_STREQ("future-node", loaded.mqtt_origin);
   EXPECT_STREQ("field-ssid", loaded.wifi_ssid);
   EXPECT_STREQ("field-secret", loaded.wifi_password);

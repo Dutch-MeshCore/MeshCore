@@ -79,6 +79,11 @@
 // channel so an update is never stalled indefinitely.
 #define OTA_TX_DRAIN_TIMEOUT_MS     5000
 
+// Bench mitigation for a ThinkNode M7 cache-error race between a clean MQTT
+// teardown and the OTA worker allocation. 25 ms still failed intermittently;
+// 100 ms completed five consecutive one-slot OTA cycles without a crash.
+#define OTA_MQTT_STOP_SETTLE_MS      100
+
 #define LAZY_CONTACTS_WRITE_DELAY    5000
 
 void MyMesh::putNeighbour(const mesh::Identity &id, uint32_t timestamp, float snr) {
@@ -400,7 +405,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
       int results_offset = 0;
       uint8_t results_buffer[130];
       for(int index = 0; index < count && index + offset < neighbours_count; index++){
-        
+
         // stop if we can't fit another entry in results
         int entry_size = pubkey_prefix_length + 4 + 1;
         if(results_offset + entry_size > sizeof(results_buffer)){
@@ -547,6 +552,11 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 }
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
+#ifdef DISPLAY_ACTIVITY_DASHBOARD
+  // Valid parsed RF packet: the only event the dashboard's window counts.
+  _activity.recordPacket(millis(), (uint16_t)len, _radio->getEstAirtimeFor(len),
+                         (int8_t)(pkt->getSNR() * 4.0f), (int16_t)_radio->getLastRSSI());
+#endif
 #ifdef WITH_MQTT_BRIDGE
   // MQTT bridge: always feed RX packets — bridge decides based on mqtt.rx setting
   if (bridge) bridge->onPacketReceived(pkt);
@@ -855,7 +865,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
     memcpy(&sender_timestamp, data, 4); // timestamp (by sender's RTC clock - which could be wrong)
     uint8_t flags = (data[4] >> 2);        // message attempt number, and other flags
 
-    if (!(flags == TXT_TYPE_PLAIN || flags == TXT_TYPE_CLI_DATA)) {
+    if (!(flags == TXT_TYPE_PLAIN || flags == TXT_TYPE_CLI_DATA || flags == TXT_TYPE_CLI_COMMAND)) {
       MESH_DEBUG_PRINTLN("onPeerDataRecv: unsupported text type received: flags=%02x", (uint32_t)flags);
     } else if (sender_timestamp >= client->last_timestamp) { // prevent replay attacks
       bool is_retry = (sender_timestamp == client->last_timestamp);
@@ -1065,7 +1075,9 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   // _prefs.agc_reset_interval = 7;  // 28 seconds (secs/4)
 #endif
   // Observer defaults (radio_watchdog, alert.*, snmp.*) moved to applyMQTTDefaults()
-  // in MQTTDefaults.h — they live in /mqtt_prefs now, not NodePrefs.
+  // in MQTTDefaults.h — they live in /mqtt.json now, not NodePrefs.
+  _prefs.cad_enabled = 0;            // hardware CAD before TX (off by default; 'set cad on')
+  _prefs.loop_detect = LOOP_DETECT_MINIMAL;
 
   // duty-cycle region gating defaults (feature is opt-in, off by default)
   _prefs.dc_gate_enabled = 0;
@@ -1086,7 +1098,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.gps_interval = 0;
   _prefs.advert_loc_policy = ADVERT_LOC_PREFS;
 
-  // MQTT/WiFi/timezone/radio_watchdog defaults live in /mqtt_prefs now (see applyMQTTDefaults).
+  // MQTT/WiFi/timezone/radio_watchdog defaults live in /mqtt.json now (see applyMQTTDefaults).
 
   _prefs.adc_multiplier = 0.0f; // 0.0f means use default board multiplier
 
@@ -1240,8 +1252,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   radio_driver.setRxBoostedGainMode(_prefs.rx_boosted_gain);
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
-  board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);   // LoRa FEM LNA (FEM boards only)
-  board.setLoRaFemPaGainEnabled(_prefs.radio_fem_txgain);
+  board.attachDynamicPrefs(_prefs.getCustom());
 
   updateAdvertTimer();
   updateFloodAdvertTimer();
@@ -1452,7 +1463,7 @@ void MyMesh::formatRadioDiagReply(char *reply) {
 }
 
 void MyMesh::formatPacketStatsReply(char *reply) {
-  StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(), 
+  StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(),
                                        getNumRecvFlood(), getNumRecvDirect());
 }
 
@@ -1982,6 +1993,9 @@ void MyMesh::loop() {
     // duty-limited channel) is lost when the flash spins the loop and reboots.
     drainOutbound(OTA_TX_DRAIN_TIMEOUT_MS);
     setBridgeState(false);
+    // TODO: Replace this timed settle with a proven MQTT task/client/callback
+    // quiescence barrier once the teardown race's root cause is identified.
+    delay(OTA_MQTT_STOP_SETTLE_MS);
     char ota_reply[160];
     // OTA teardown barrier (Phase 5): only flash after a CLEAN MQTT shutdown.
     // A timed-out/forced stop leaves mbedTLS/heap ownership uncertain — writing

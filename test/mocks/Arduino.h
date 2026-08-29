@@ -14,8 +14,14 @@
 #include <cmath>
 #include <string>
 
+// The real Arduino.h pulls in stdlib.h, so device code reaches atoi/atol/atof/strtoul
+// without including it. <cstdlib> is already included above; these using-decls are
+// what device sources actually need, or they fail only on the native build.
 #include "Stream.h"
 
+using std::atof;
+using std::atoi;
+using std::atol;
 using std::isnan;
 
 inline uint32_t g_mock_millis = 0;

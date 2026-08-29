@@ -47,6 +47,24 @@ struct MQTTPresetDef {
 // Braces match topic placeholders ({device}/{iata}); never send this string to the broker.
 static const char MQTT_USERPASS_USERNAME_PUBKEY[] = "{pubkey}";
 
+// True when the broker tears down a live session once its JWT passes exp, so the
+// renewal must proactively bounce the connection to present a fresh token.
+//
+// Default true, because getting this wrong the safe way costs a re-handshake and
+// getting it wrong the unsafe way costs an outage. waev is the exception: its
+// operator confirmed (2026-08-11) that their servers do not disconnect on expiry,
+// so a live session there needs only its credentials refreshed for the next
+// reconnect. waev is also the only preset with a short token_lifetime, so it was
+// the only one bouncing often — every ~47 min, and each bounce's re-handshake can
+// cost ~10 KB of contiguous internal DRAM on a non-PSRAM board.
+//
+// Keyed by name rather than a struct field on purpose: adding a field would mean
+// re-ordering a dozen positional initialisers below, where a mistake is silent.
+static inline bool mqttPresetEnforcesTokenExp(const MQTTPresetDef* preset) {
+  if (!preset || !preset->name) return true;   // custom/audience slots: assume enforced
+  return strcmp(preset->name, "waev") != 0;
+}
+
 static inline bool mqttPresetUsesDevicePubkeyUsername(const MQTTPresetDef* preset) {
   return preset && preset->auth_type == MQTT_AUTH_USERPASS &&
          preset->userpass_username &&
@@ -130,7 +148,7 @@ static const char ISRG_ROOT_X1[] PROGMEM =
     "-----END CERTIFICATE-----\n";
 
 // Number of built-in presets
-static const int MQTT_PRESET_COUNT = 35;
+static const int MQTT_PRESET_COUNT = 36;
 
 // Built-in preset definitions (stored in flash)
 static const MQTTPresetDef MQTT_PRESETS[MQTT_PRESET_COUNT] = {
@@ -178,6 +196,7 @@ static const MQTTPresetDef MQTT_PRESETS[MQTT_PRESET_COUNT] = {
     // JWT token auth; LE Gen-Y ECDSA chain (YE2 → Root YE → X2) still anchors at ISRG Root X1.
     { "gomesh",        "wss://mqtt.gomesh.dev:443",               "mqtt.gomesh.dev",                 ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
     { "idahomesh",     "wss://mqtt.idahomesh.org:443/mqtt",       "mqtt.idahomesh.org",              ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
+    { "ntxmesh",       "wss://ntxmesh.dhovin.me:8883",            "ntxmesh.dhovin.me",               ISRG_ROOT_X1,  MQTT_AUTH_JWT,      MQTT_TOPIC_MESHCORE,  0,       true,   55,      nullptr,     nullptr     },
 };
 
 // Find a preset by name, returns nullptr if not found

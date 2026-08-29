@@ -8,7 +8,7 @@
 #include "MQTTPacketFilter.h"
 #include "MQTTPresets.h"
 
-// Compile-time defaults for fresh /mqtt_prefs (override via platformio build_flags).
+// Compile-time defaults for fresh /mqtt.json (override via platformio build_flags).
 // Example:
 //   -D MQTT_DEFAULT_SLOT1_PRESET='"meshcore-ca-1"'
 //   -D MQTT_DEFAULT_IATA='"YYZ"'
@@ -113,6 +113,8 @@ static inline void applyMQTTDefaults(MQTTPrefs* prefs) {
   // Packet-filter drop statistics publish at this interval; the default is a
   // valid 60s (not 0/off) so a defaulted tail keeps an in-lineage upgrade sane.
   prefs->mqtt_filter_interval = MQTT_FILTER_STATS_DEFAULT_INTERVAL_MS;
+  prefs->display_timeout_secs = DISPLAY_TIMEOUT_DEFAULT_SECS;
+  prefs->display_flip = 0;
 }
 
 #endif // WITH_MQTT_BRIDGE
