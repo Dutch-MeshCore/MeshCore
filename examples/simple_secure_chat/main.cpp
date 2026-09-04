@@ -13,6 +13,7 @@
 #include <helpers/StaticPoolPacketManager.h>
 #include <helpers/SimpleMeshTables.h>
 #include <helpers/IdentityStore.h>
+#include <helpers/DutyCycleLimits.h>
 #include <RTClib.h>
 #include <target.h>
 
@@ -67,7 +68,8 @@ struct NodePrefs {  // persisted to file
   double node_lat, node_lon;
   float freq;
   int8_t tx_power_dbm;
-  uint8_t unused[3];
+  uint8_t dutycycle_auto;
+  uint8_t unused[2];
 };
 
 class MyMesh : public BaseChatMesh, ContactVisitor {
@@ -191,7 +193,7 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
 
 protected:
   float getAirtimeBudgetFactor() const override {
-    return _prefs.airtime_factor;
+    return getEffectiveAirtimeFactor(_prefs.dutycycle_auto, _prefs.airtime_factor, _prefs.freq);
   }
 
   int calcRxDelay(float score, uint32_t air_time) const override {
@@ -285,6 +287,7 @@ public:
     strcpy(_prefs.node_name, "NONAME");
     _prefs.freq = LORA_FREQ;
     _prefs.tx_power_dbm = LORA_TX_POWER;
+    _prefs.dutycycle_auto = 1;
 
     command[0] = 0;
     curr_recipient = NULL;
@@ -476,6 +479,7 @@ public:
       const char* config = &command[4];
       if (memcmp(config, "af ", 3) == 0) {
         _prefs.airtime_factor = atof(&config[3]);
+        _prefs.dutycycle_auto = 0;
         savePrefs();
         Serial.println("  OK");
       } else if (memcmp(config, "name ", 5) == 0) {
