@@ -2,6 +2,7 @@
 #include "TxtDataHelpers.h"
 #include "Utils.h"
 #include "target.h"
+#include "DutyCycleLimits.h"
 
 bool CommonRadioPrefs::getByKey(const char* key, char* value, size_t max_len) {
   if (strcmp(key, "fem_rxgain") == 0) {
@@ -63,7 +64,8 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
   }
 
   if (strcmp(command, "get af") == 0) {
-    sprintf(reply, "> %s", StrHelper::ftoa(getAirtimeFactor()));
+    float af = getEffectiveAirtimeFactor(getDutyCycleAuto(), getAirtimeFactor(), getFreq());
+    sprintf(reply, "> %s", StrHelper::ftoa(af));
     return true;
   }
   if (memcmp(command, "set af ", 7) == 0) {
@@ -73,28 +75,39 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
       strcpy(reply, "ERROR: af must be 0-9");
     } else {
       setAirtimeFactor(af);
+      setDutyCycleAuto(0);   // manual af turns off frequency-derived duty cycle
       strcpy(reply, "OK");
     }
     return true;
   }
 
   if (strcmp(command, "get dutycycle") == 0) {
-    float dc = 100.0f / (getAirtimeFactor() + 1.0f);
+    float af = getEffectiveAirtimeFactor(getDutyCycleAuto(), getAirtimeFactor(), getFreq());
+    float dc = 100.0f / (af + 1.0f);
     int dc_int = (int)dc;
     int dc_frac = (int)((dc - dc_int) * 10.0f + 0.5f);
-    sprintf(reply, "> %d.%d%%", dc_int, dc_frac);
+    sprintf(reply, "> %d.%d%% (%s)", dc_int, dc_frac, getDutyCycleAuto() ? "auto" : "manual");
     return true;
   }
   if (memcmp(command, "set dutycycle ", 14) == 0) {
-    float dc = atof(&command[14]);
-    if (dc < 1 || dc > 100) {
-      strcpy(reply, "ERROR: dutycycle must be 1-100");
-    } else {
-      setAirtimeFactor((100.0f / dc) - 1.0f);
-      float actual = 100.0f / (getAirtimeFactor() + 1.0f);
+    if (memcmp(&command[14], "auto", 4) == 0) {
+      setDutyCycleAuto(1);
+      float actual = getMaxDutyCyclePercent(getFreq());
       int a_int = (int)actual;
       int a_frac = (int)((actual - a_int) * 10.0f + 0.5f);
-      sprintf(reply, "OK - %d.%d%%", a_int, a_frac);
+      sprintf(reply, "OK - auto, %d.%d%%", a_int, a_frac);
+    } else {
+      float dc = atof(&command[14]);
+      if (dc < 1 || dc > 100) {
+        strcpy(reply, "ERROR: dutycycle must be 1-100, or auto");
+      } else {
+        setAirtimeFactor(dutyCycleToAirtimeFactor(dc));
+        setDutyCycleAuto(0);
+        float actual = 100.0f / (getAirtimeFactor() + 1.0f);
+        int a_int = (int)actual;
+        int a_frac = (int)((actual - a_int) * 10.0f + 0.5f);
+        sprintf(reply, "OK - %d.%d%%", a_int, a_frac);
+      }
     }
     return true;
   }

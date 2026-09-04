@@ -26,6 +26,9 @@ public:
   virtual float getAirtimeFactor() const = 0;
   virtual void setAirtimeFactor(float af) = 0;
 
+  virtual uint8_t getDutyCycleAuto() const = 0;
+  virtual void setDutyCycleAuto(uint8_t a) = 0;
+
   virtual bool isCadEnabled() const = 0;
   virtual void setCadEnabled(bool en) = 0;
 
