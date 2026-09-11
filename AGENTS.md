@@ -30,10 +30,17 @@ upstream project and are wrong here on three points:
 | "Open an issue first, get a 👍" | See §6 — issues are disabled on the repo. |
 | "Reference any related issue (`Fixes #123`)" | Not possible while issues are disabled. |
 
-**In practice this fork is the repeater packet filter.** Measured against `mc/dev`, the delta is
-~1100 lines, and ~1000 of them are `examples/simple_repeater/Filter.cpp`, `Filter.h` and the two
-filter documents. The rest is three DMC build workflows, `build.sh`, and a handful of small variant
-and radio tweaks.
+**In practice this fork is a set of repeater airtime-control features** layered on the upstream
+base (currently synced to `mc/dev`, embedded firmware version `v1.17.1.01`):
+
+- the **repeater packet filter** — `examples/simple_repeater/Filter.{cpp,h}` plus header-only
+  `FilterStats.h` / `Limiter.h` (drop statistics + probabilistic soft cutoff);
+- **duty-cycle region gating** (`dc.gate.*`) — `test/test_region_gating/`, wired through
+  `RegionMap.*`, `Dispatcher.*`, `MyMesh.*` and the radio-prefs CLI;
+- a **frequency-derived duty-cycle default** (`set dutycycle auto`) — `src/helpers/DutyCycleLimits.{cpp,h}`.
+
+Most of it lives in DMC-only files (see §2). The rest is two DMC build workflows, `build.sh`,
+`scripts/publish-release.sh`, and a handful of small variant and radio tweaks.
 
 ## 2. Where code goes
 
@@ -49,18 +56,24 @@ So: **put new functionality in new, DMC-only files.** When you must touch a shar
 change to as few contiguous hunks as possible, and keep them at stable anchor points — the number
 and placement of hunks decides how painful the merge is, not the number of lines.
 
-These seven shared files currently carry DMC changes. Adding an eighth should be a deliberate
-decision, not a side effect:
+These shared files currently carry DMC changes. Adding another should be a deliberate decision,
+not a side effect. Grouped by what pulls them in:
 
 ```
-build.sh
-docs/cli_commands.md
-examples/simple_repeater/MyMesh.cpp
-examples/simple_repeater/MyMesh.h
-src/helpers/radiolib/RadioLibWrappers.cpp
-variants/minewsemi_me25ls01/platformio.ini
-variants/tenstar_c3/target.h
+build / release   build.sh, platformio.ini
+packet filter     examples/simple_repeater/MyMesh.{cpp,h}, docs/cli_commands.md
+region gating     src/Dispatcher.{cpp,h}, src/helpers/RegionMap.{cpp,h},
+                  src/helpers/CommonCLI.{cpp,h}, test/mocks/{Arduino,SHA256,Stream}.h
+duty-cycle auto   src/helpers/CommonRadioPrefs.{cpp,h}, src/helpers/CommonCLI.{cpp,h},
+                  examples/simple_repeater/MyMesh.h, examples/simple_room_server/MyMesh.h,
+                  examples/simple_secure_chat/main.cpp,
+                  examples/companion_radio/{MyMesh.cpp,NodePrefs.h}, examples/simple_sensor/SensorMesh.cpp
+variant tweaks    variants/minewsemi_me25ls01/platformio.ini, variants/tenstar_c3/target.h
 ```
+
+Note the CLI-prefs cost: because upstream moved the radio-pref handlers into
+`src/helpers/CommonRadioPrefs.{cpp,h}`, any DMC pref that reads or writes there (`dc.gate.*`,
+`dutycycle auto`) now conflicts on that file too, on top of `CommonCLI.{cpp,h}`.
 
 ## 3. Build and test
 
@@ -128,9 +141,10 @@ type-range message was found to say `0-10` while the guard accepts `0-11`.
 
 ## 5. Tests
 
-Suites live in `test/test_<name>/` and are picked up automatically by `env:native`; only
-`test_kiss_modem` is excluded, via `test_ignore`. No `platformio.ini` change is needed for a new
-suite.
+Suites live in `test/test_<name>/` and are picked up automatically by `env:native`; the ones that
+need their own build flags or isolated mocks get a dedicated env instead and are excluded from
+`native` via `test_ignore` (currently `test_kiss_modem` and `test_region_gating`, the latter running
+under `env:native_region_gating`). A plain logic suite needs no `platformio.ini` change.
 
 **Every suite must define its own gtest `main()`:**
 
