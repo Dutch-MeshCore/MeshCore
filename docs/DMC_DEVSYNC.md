@@ -77,15 +77,26 @@ and plan:
 ## Toolbox coupling (Dutch-Meshcore-Toolbox)
 
 Firmware CLI/pref changes need matching updates in the sibling `Dutch-Meshcore-Toolbox` repo
-(`src/` only — its `docs/` is Vite build output, never commit it):
+(`src/` only — its `docs/` is Vite build output, never commit it). **Deferred to a separate session
+(user decision, 2026-09-11).** Concrete TODO, from investigating the toolbox against v1.17.1.01:
 
-- **Region gating is no longer observer-MQTT-only.** The toolbox currently gates the `dc.gate` UI to
-  observer firmware (`ConfigForm.tsx`, `panelHelpContent.ts`, `useSerialDevice.ts`); with v1.17.1.01
-  a plain repeater answers `get dc.gate`, so the gate must broaden (feature-detect, which
-  `useSerialDevice.ts` already does at ~line 189) and backup/restore should round-trip `dc.gate.*`.
-- Register `v1.17.1.01` in `src/lib/cli/firmwareRegistry.ts`; add an en/nl(/de) changelog entry; the
-  `set dutycycle auto` mode and frequency-derived default may warrant help-text and an optional
-  `getMaxDutyCyclePercent` mirror in `src/utils/configUtils.ts`.
+- **Region gating already works on non-observer firmware — no code change needed for that.** The UI
+  is feature-detected: `useSerialDevice.ts` (~line 189) probes `get dc.gate` and sets `dcGateSupported`,
+  and `ConfigForm.tsx` (~line 544/549) gates the panel on `device.dcGateSupported`. A v1.17.1.01
+  repeater answers `get dc.gate`, so the panel shows automatically. Only **stale comments** claim
+  "observer-only" (`ConfigForm.tsx:543`, `useSerialDevice.ts:179-181`) — cosmetic.
+- **BUG to fix (user-facing, nl/en/de):** `src/components/config/panelHelpContent.ts` `regionGating`
+  intros/fields describe `dc.gate` as **neighbour-count** based ("aantal buren" / "number of
+  neighbours"). The firmware is **TX-duty-cycle** based: `dc.gate.thresh` = TX duty-cycle % above
+  which outer regions get gated (default 70), `dc.gate.hyst` = recovery margin % (default 10); it
+  sheds airtime, not neighbours. The CLI `descriptions.{nl,de}.ts` already describe it correctly as
+  duty %, so the help panel contradicts them. Rewrite the three-language help to the duty-cycle model.
+- Register `v1.17.1.01` in `src/lib/cli/firmwareRegistry.ts`; add an en/nl changelog entry
+  (`ChangelogPage.tsx` + its i18n source). The `set dutycycle auto` mode + frequency-derived default
+  may warrant help-text and an optional `getMaxDutyCyclePercent(freq)` mirror in
+  `src/utils/configUtils.ts` (table lives in firmware `src/helpers/DutyCycleLimits.cpp`).
+- Verify `dc.gate.*` round-trips in backup/restore (`useSerialDevice.ts:~476` keeps dc.gate "from the
+  connected device"); then `npm test` + `npm run build` (do **not** commit the regenerated `docs/`).
 
 ## Open items on GitHub
 
