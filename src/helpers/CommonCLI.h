@@ -75,6 +75,7 @@ public:
   uint8_t dc_gate_enabled = 0;    // duty-cycle region gating: 0 = off (opt-in)
   uint8_t dc_gate_threshold = 70; // TX duty-cycle % above which outer regions start being gated
   uint8_t dc_gate_hysteresis = 10;// recover margin in %: re-enable regions below (threshold - hysteresis)
+  uint8_t dutycycle_auto = 1;   // derive the duty cycle limit from freq (boolean)
   uint8_t extra_sf[4];
 
   // NOTE: observer settings (MQTT/WiFi/timezone/SNMP/alert) are not in NodePrefs.
@@ -97,6 +98,7 @@ private:
       def("fem_txgain", _parent->radio_fem_txgain);
       def("tx", _parent->tx_power_dbm);
       def("af", _parent->airtime_factor);
+      def("dc_auto", _parent->dutycycle_auto);
       def("rxdelay", _parent->rx_delay_base);
       def("f_txdelay", _parent->tx_delay_factor);
       def("d_txdelay", _parent->direct_tx_delay_factor);
@@ -117,6 +119,8 @@ private:
     void setCodingRate(uint8_t cr) override { _parent->cr = cr; markDirty(); }
     float getAirtimeFactor() const override { return _parent->airtime_factor; }
     void setAirtimeFactor(float af) override { _parent->airtime_factor = af; markDirty(); }
+    uint8_t getDutyCycleAuto() const override { return _parent->dutycycle_auto; }
+    void setDutyCycleAuto(uint8_t a) override { _parent->dutycycle_auto = a; markDirty(); }
     bool isCadEnabled() const override { return _parent->cad_enabled; }
     void setCadEnabled(bool en) override { _parent->cad_enabled = en; markDirty(); }
     uint8_t getIntThresh() const override { return _parent->interference_threshold; }

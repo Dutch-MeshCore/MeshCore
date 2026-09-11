@@ -23,6 +23,7 @@
 #include <helpers/AlertReporter.h>
 #include <helpers/TxtDataHelpers.h>
 #include <helpers/CommonCLI.h>
+#include <helpers/DutyCycleLimits.h>
 #include <helpers/StatsFormatHelper.h>
 #include <helpers/ClientACL.h>
 #include <helpers/RegionMap.h>
@@ -47,7 +48,7 @@
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "v1.17.1"
+  #define FIRMWARE_VERSION   "v1.17.1.01"
 #endif
 
 #ifndef LORA_FREQ
@@ -230,7 +231,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
 
 protected:
   float getAirtimeBudgetFactor() const override {
-    return _prefs.airtime_factor;
+    return getEffectiveAirtimeFactor(_prefs.dutycycle_auto, _prefs.airtime_factor, _prefs.freq);
   }
 
   bool getCADEnabled() const override {

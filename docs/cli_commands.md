@@ -701,19 +701,107 @@ filter stats hops
 **Usage:**
 - `get dutycycle`
 - `set dutycycle <value>`
+- `set dutycycle auto`
 
 **Parameters:**
-- `value`: Duty cycle percentage (1-100)
+- `value`: Duty cycle percentage (1-100), or `auto` to follow the regulatory limit of the configured frequency
 
-**Default:** `50%` (equivalent to airtime factor 1.0)
+**Default:** `auto`
+
+In `auto` the limit comes from the sub-band the node is tuned to, and it is
+re-derived as soon as `set freq` or `set radio` changes that frequency. The
+table only covers the 863-870 MHz SRD band of ETSI EN 300 220-2; on any other
+frequency `auto` means no limit.
+
+| Sub-band (MHz) | Limit |
+| --- | --- |
+| 863.0 - 865.0 | 0.1% |
+| 865.0 - 868.0 | 1% |
+| 868.0 - 868.6 | 1% |
+| 868.7 - 869.2 | 0.1% |
+| 869.4 - 869.65 | 10% |
+| 869.7 - 870.0 | 1% |
+| gaps between the rows above | 0.1% |
+
+A frequency exactly on a boundary takes the lower of the two sub-bands.
+
+Setting an explicit percentage, or setting `af`, turns `auto` off and that
+value stays in force until `set dutycycle auto` restores it. `get dutycycle`
+reports which of the two is active.
 
 **Examples:**
+- `set dutycycle auto` — follow the sub-band of the configured frequency (default)
 - `set dutycycle 100` — no duty cycle limit
-- `set dutycycle 50` — 50% duty cycle (default)
+- `set dutycycle 50` — 50% duty cycle
 - `set dutycycle 10` — 10% duty cycle
-- `set dutycycle 1` — 1% duty cycle (strictest EU requirement)
+- `set dutycycle 1` — 1% duty cycle
 
-> **Note:** Added in firmware v1.15.0
+> **Note:** Added in firmware v1.15.0. `auto`, and the default changing from 50% to `auto`, added in the DMC fork.
+
+---
+
+#### Duty-cycle region gating
+
+Autonomously sheds inter-region flood traffic when this repeater's own TX duty
+cycle is high, protecting the local cluster during high-traffic or disruption
+events — no admin access needed once configured. Opt-in and **off by default**.
+
+It reuses the existing [Region Management](#region-management-v110) hierarchy.
+When the TX duty cycle rises above the threshold, regions are gated from the
+outermost layer inward — the wildcard `*` first, then the broadest named regions
+— always keeping the innermost cluster and the operator's home region open. As
+the duty cycle recovers below `threshold − hysteresis`, regions re-open
+inside-out, with a small random per-step delay so nearby repeaters don't all
+recover in lockstep. The gate is transient: it is never written to the region
+config, so a `region save` or a reboot mid-event can never make a deny permanent.
+
+**Usage:**
+- `set dc.gate <0|1>` — enable (`1`) or disable (`0`) the feature
+- `get dc.gate` — show whether it is on or off
+- `set dc.gate.thresh <1-100>` — TX duty-cycle % above which gating starts
+- `get dc.gate.thresh`
+- `set dc.gate.hyst <0-50>` — recovery margin %: regions re-open below `(threshold − hysteresis)`
+- `get dc.gate.hyst`
+- `get dc.gate.status` — live TX duty cycle % and current gate level (`level/max`)
+
+**Defaults:** disabled; threshold `70`; hysteresis `10` (so recovery begins below 60%).
+
+**Examples:**
+- `set dc.gate 1` — turn gating on
+- `set dc.gate.thresh 80` — only start shedding above 80% duty cycle
+- `set dc.gate.hyst 15` — re-open regions once duty cycle drops below 65%
+- `get dc.gate.status` — e.g. `> duty 74%, gate level 2/4`
+
+**Notes:**
+- The innermost (deepest) region layer and the configured home region are never gated.
+- A repeater with no named regions (wildcard only) never gates — the wildcard *is* its local cluster.
+
+**How it interacts with the packet filter:**
+
+Region gating and the [packet filter](#packet-filter-repeater-only) are
+complementary and run in a fixed order on each flood packet — region gating
+first, the packet filter second:
+
+1. Region gating decides whether the packet's **region** may flood at all
+   (config deny **or** the transient duty-cycle gate). A gated region's packets
+   are dropped here.
+2. Only packets that pass then reach the packet filter, which applies its
+   per-type hop/rate limits, soft cutoff and channel/source blocks.
+
+Because a region-gated packet is dropped *before* the filter sees it, the two
+never double-count: region-gating drops do **not** appear in the `filter stats`
+counters (watch the gate via `get dc.gate.status` instead). They also can't
+conflict — both only ever *deny* forwarding, never re-enable it.
+
+They shed on different axes: region gating is coarse and load-adaptive
+(*whose* traffic, driven by this repeater's own TX duty cycle), while the filter
+is fine-grained and policy-driven (*what* traffic, by configured limits). Running
+both is defense-in-depth and recommended; just note that both shed **flood**
+traffic, so on a saturated repeater they stack — keep the filter's limits for
+locally-relevant types generous if you rely on region gating as the first-line
+congestion response. Region gating is off by default, so enabling it layers on
+top of an existing filter configuration without disturbing it. Directed
+(non-flood) traffic is never region-gated.
 
 ---
 
@@ -799,7 +887,11 @@ top of an existing filter configuration without disturbing it. Directed
   - `af = 9` → ~10% duty
   You are responsible for choosing a value that is appropriate for your jurisdiction and channel plan (for example EU 868 Mhz 10% duty cycle regulation).
 
-**Default:** `1.0`
+  Setting `af` turns off `set dutycycle auto`. `get af` reports the factor
+  that is actually in force, so while `dutycycle` is on `auto` it reports the
+  one derived from the frequency rather than the stored value.
+
+**Default:** `1.0`, used only while `dutycycle` is not on `auto`
 
 ---
 

@@ -75,6 +75,7 @@ int ConfigSerializer::Context::readNext() {
     case EXPECT_COMMA_OR_KEY:
       if (c == ',') { rd_mode = EXPECT_KEY; return TOK_WHITESPACE; }
     case EXPECT_KEY:
+      if (rd_len == 0 && c == '}') { rd_mode = EXPECT_COMMA_OR_KEY_OR_CLOSE; return TOK_END_OBJ; }  // empty object (incl. after whitespace/comma), eg. 'custom:{ }'
 read_key:
       if (rd_len > 0 && c == ':') { rd_buf[rd_len] = 0; rd_len = 0; rd_mode = EXPECT_VAL_OR_OBJ; return TOK_KEY; }
       if (rd_len == 0 && is_whitespace(c)) return TOK_WHITESPACE;

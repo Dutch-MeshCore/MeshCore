@@ -419,7 +419,7 @@ detail that would not fit on the summary line.
 
 ```text
 filter stats
-> filter stats [ hops | rate | hash | channel | malformed | top ]
+> filter stats [ hops | rate | channel | hash | malformed | top ]
 ```
 
 An unknown topic returns that same list.

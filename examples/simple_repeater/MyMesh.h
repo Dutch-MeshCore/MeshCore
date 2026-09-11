@@ -5,6 +5,7 @@
 #include <RTClib.h>
 #include <CayenneLPP.h>
 #include <target.h>
+#include <helpers/DutyCycleLimits.h>
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   #include <InternalFileSystem.h>
@@ -85,7 +86,7 @@ struct NeighbourInfo {
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "v1.17.1"
+  #define FIRMWARE_VERSION   "v1.17.1.01"
 #endif
 
 #define FIRMWARE_ROLE "repeater"
@@ -226,7 +227,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
 
 protected:
   float getAirtimeBudgetFactor() const override {
-    return _prefs.airtime_factor;
+    return getEffectiveAirtimeFactor(_prefs.dutycycle_auto, _prefs.airtime_factor, _prefs.freq);
   }
 
   bool getCADEnabled() const override {
