@@ -14,6 +14,7 @@
 #include <helpers/SimpleMeshTables.h>
 #include <helpers/IdentityStore.h>
 #include <helpers/DutyCycleLimits.h>
+#include <helpers/ConfigSerializer.h>
 #include <RTClib.h>
 #include <target.h>
 
@@ -62,7 +63,9 @@ static uint32_t _atoi(const char* sp) {
 
 /* -------------------------------------------------------------------------------------- */
 
-struct NodePrefs {  // persisted to file
+// Legacy on-disk layout (raw byte struct, pre-ConfigSerializer). Read once to
+// migrate an existing /node_prefs into the new self-describing text format.
+struct LegacyNodePrefs {
   float airtime_factor;
   char node_name[32];
   double node_lat, node_lon;
@@ -70,6 +73,27 @@ struct NodePrefs {  // persisted to file
   int8_t tx_power_dbm;
   uint8_t dutycycle_auto;
   uint8_t unused[2];
+};
+
+// Self-describing prefs (issue #6): a new field falls back to its struct
+// default instead of inheriting whatever byte the old positional layout left.
+struct NodePrefs : public ConfigSerializer {
+  float airtime_factor = 1.0f;
+  char node_name[32] = "NONAME";
+  double node_lat = 0.0, node_lon = 0.0;
+  float freq = LORA_FREQ;
+  int8_t tx_power_dbm = LORA_TX_POWER;
+  uint8_t dutycycle_auto = 1;   // derive the duty cycle limit from freq (boolean)
+protected:
+  void structure() override {
+    def("af", airtime_factor);
+    def("name", node_name, sizeof(node_name));
+    def("lat", node_lat);
+    def("lon", node_lon);
+    def("freq", freq);
+    def("tx", tx_power_dbm);
+    def("dc_auto", dutycycle_auto);
+  }
 };
 
 class MyMesh : public BaseChatMesh, ContactVisitor {
@@ -285,14 +309,8 @@ public:
   MyMesh(mesh::Radio& radio, StdRNG& rng, mesh::RTCClock& rtc, SimpleMeshTables& tables)
      : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables)
   {
-    // defaults
-    memset(&_prefs, 0, sizeof(_prefs));
-    _prefs.airtime_factor = 1.0;
-    strcpy(_prefs.node_name, "NONAME");
-    _prefs.freq = LORA_FREQ;
-    _prefs.tx_power_dbm = LORA_TX_POWER;
-    _prefs.dutycycle_auto = 1;
-
+    // defaults now live in NodePrefs' in-class initializers (do NOT memset:
+    // NodePrefs is a polymorphic ConfigSerializer, memset would corrupt it)
     command[0] = 0;
     curr_recipient = NULL;
   }
@@ -331,15 +349,38 @@ public:
     }
 
     // load persisted prefs
-    if (_fs->exists("/node_prefs")) {
+    if (_fs->exists("/node_prefs.json")) {       // new self-describing format
+    #if defined(RP2040_PLATFORM)
+      File file = _fs->open("/node_prefs.json", "r");
+    #else
+      File file = _fs->open("/node_prefs.json");
+    #endif
+      if (file) {
+        _prefs.loadSerial(file);
+        file.close();
+      }
+    } else if (_fs->exists("/node_prefs")) {     // migrate legacy binary prefs
     #if defined(RP2040_PLATFORM)
       File file = _fs->open("/node_prefs", "r");
     #else
       File file = _fs->open("/node_prefs");
     #endif
       if (file) {
-        file.read((uint8_t *) &_prefs, sizeof(_prefs));
+        LegacyNodePrefs legacy;
+        memset(&legacy, 0, sizeof(legacy));   // plain struct, safe to memset
+        if (file.read((uint8_t *) &legacy, sizeof(legacy)) == sizeof(legacy)) {
+          _prefs.airtime_factor = legacy.airtime_factor;
+          memcpy(_prefs.node_name, legacy.node_name, sizeof(_prefs.node_name));
+          _prefs.node_name[sizeof(_prefs.node_name) - 1] = 0;
+          _prefs.node_lat = legacy.node_lat;
+          _prefs.node_lon = legacy.node_lon;
+          _prefs.freq = legacy.freq;
+          _prefs.tx_power_dbm = legacy.tx_power_dbm;
+          // dutycycle_auto: a pre-migration file holds only padding here, so keep
+          // the struct default (auto on) rather than inheriting that byte (#6)
+        }
         file.close();
+        savePrefs();   // re-persist in the new self-describing format
       }
     }
 
@@ -349,15 +390,15 @@ public:
 
   void savePrefs() {
 #if defined(NRF52_PLATFORM)
-    _fs->remove("/node_prefs");
-    File file = _fs->open("/node_prefs", FILE_O_WRITE);
+    _fs->remove("/node_prefs.json");
+    File file = _fs->open("/node_prefs.json", FILE_O_WRITE);
 #elif defined(RP2040_PLATFORM)
-    File file = _fs->open("/node_prefs", "w");
+    File file = _fs->open("/node_prefs.json", "w");
 #else
-    File file = _fs->open("/node_prefs", "w", true);
+    File file = _fs->open("/node_prefs.json", "w", true);
 #endif
     if (file) {
-      file.write((const uint8_t *)&_prefs, sizeof(_prefs));
+      _prefs.saveSerial(file);
       file.close();
     }
   }
