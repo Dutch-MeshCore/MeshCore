@@ -76,7 +76,7 @@ struct NeighbourInfo {
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "v1.17.1"
+  #define FIRMWARE_VERSION   "v1.17.1.01"
 #endif
 
 #define FIRMWARE_ROLE "repeater"
