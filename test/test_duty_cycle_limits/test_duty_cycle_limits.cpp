@@ -50,3 +50,8 @@ TEST(DutyCycleLimits, ManualKeepsTheConfiguredFactor) {
     EXPECT_FLOAT_EQ(1.0f, getEffectiveAirtimeFactor(0, 1.0f, 869.618f));
     EXPECT_FLOAT_EQ(0.5f, getEffectiveAirtimeFactor(0, 0.5f, 915.0f));
 }
+
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}
