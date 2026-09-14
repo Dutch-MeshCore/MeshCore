@@ -76,6 +76,7 @@ public:
   uint8_t dc_gate_threshold = 70; // TX duty-cycle % above which outer regions start being gated
   uint8_t dc_gate_hysteresis = 10;// recover margin in %: re-enable regions below (threshold - hysteresis)
   uint8_t dutycycle_auto = 1;   // derive the duty cycle limit from freq (boolean)
+  uint8_t ota_channel = 0;      // OTA release channel selector: 0=native, 1=stable, 2=dev
   uint8_t extra_sf[4];
 
   // NOTE: observer settings (MQTT/WiFi/timezone/SNMP/alert) are not in NodePrefs.
@@ -231,6 +232,7 @@ protected:
     def("lat", node_lat);
     def("lon", node_lon);
     def("disc_mod", discovery_mod_timestamp);  // gates 'since'-filtered DISCOVER replies
+    def("ota_ch", ota_channel);   // OTA release channel: 0=native, 1=stable, 2=dev
     def("radio", radio);
     def("bridge", bridge);
     def("gps", gps);
