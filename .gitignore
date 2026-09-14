@@ -17,3 +17,6 @@ compile_commands.json
 .venv/
 venv/
 platformio.local.ini
+
+# DMC docs site build output
+/site-dmc/
