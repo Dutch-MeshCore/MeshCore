@@ -71,6 +71,11 @@ TEST(OtaChannel, NameLabels) {
   EXPECT_STREQ(ota_channel_name(OTA_CH_STABLE), "stable");
   EXPECT_STREQ(ota_channel_name(OTA_CH_DEV), "dev");
 }
+
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}
 ```
 
 Add `[env:native_ota_channel]` to `platformio.ini` (after `[env:native_region_gating]`, mirror its style):
