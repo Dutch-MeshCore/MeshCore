@@ -1312,6 +1312,35 @@ bool CommonCLI::handleObserverCommand(uint32_t sender_timestamp, char* command, 
     strcpy(reply, "ERR: online OTA not supported on this build");
 #endif
     return true;
+  } else if (memcmp(command, "ota branch", 10) == 0) {
+    // Switch (or report) the OTA release channel this device pulls from. The
+    // selection is persisted (NodePrefs::ota_channel) and resolved to a baked-in
+    // base URL by ota_resolve_base(); it changes only WHERE updates are fetched,
+    // never the running image's reported version. Reachable from any admin path,
+    // same as `ota update`.
+#if defined(WITH_MQTT_BRIDGE) && defined(OTA_MANIFEST_BASE)
+    const char* arg = command + 10;
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      snprintf(reply, 160, "channel: %s (%s), base %s",
+               ota_channel_name(_prefs->ota_channel),
+               _prefs->ota_channel == OTA_CH_NATIVE ? "native" : "override",
+               ota_resolve_base(_prefs->ota_channel));
+    } else {
+      uint8_t ch;
+      if (!ota_parse_channel(arg, &ch)) {
+        strcpy(reply, "ERR: usage ota branch [stable|dev|default]");
+      } else {
+        _prefs->ota_channel = ch;
+        savePrefs();
+        snprintf(reply, 160, "channel set to %s, base %s",
+                 ota_channel_name(ch), ota_resolve_base(ch));
+      }
+    }
+#else
+    strcpy(reply, "ERR: online OTA not supported on this build");
+#endif
+    return true;
   } else if (memcmp(command, "start webconfig", 15) == 0 && (command[15] == 0 || command[15] == ' ')) {
     // Web config portal: `start webconfig` binds to the LAN IP (or raises the
     // setup AP when WiFi is unconfigured); `start webconfig ap` forces the AP.
