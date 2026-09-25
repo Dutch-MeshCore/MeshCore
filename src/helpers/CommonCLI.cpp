@@ -1585,9 +1585,17 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
       strcpy(reply, "OK");
     }
   } else if (memcmp(config, "dc.gate ", 8) == 0) {
-    _prefs->dc_gate_enabled = (atoi(&config[8]) != 0) ? 1 : 0;
-    savePrefs();
-    strcpy(reply, "OK");
+    // accept on/off as well as 1/0; anything else is rejected instead of silently disabling
+    const char* v = &config[8];
+    bool on = strcmp(v, "on") == 0 || strcmp(v, "1") == 0;
+    bool off = strcmp(v, "off") == 0 || strcmp(v, "0") == 0;
+    if (on || off) {
+      _prefs->dc_gate_enabled = on ? 1 : 0;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "ERROR: dc.gate must be on/off (or 1/0)");
+    }
   } else if (memcmp(config, "flood.advert.interval ", 22) == 0) {
     int hours = _atoi(&config[22]);
     if ((hours > 0 && hours < 3) || (hours > 168)) {
