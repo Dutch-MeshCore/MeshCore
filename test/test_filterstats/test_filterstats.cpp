@@ -2,6 +2,7 @@
 
 // Header-only drop statistics for the repeater packet filter.
 #include "../../examples/simple_repeater/FilterStats.h"
+#include "../../examples/simple_repeater/PathBlock.h"
 
 // ---- Buf: bounded, always-terminated appender -------------------------------
 
@@ -585,6 +586,172 @@ TEST(FilterStatsTop, StaysWithinTheReplyBufferWhenEverySourceDrops) {
   FilterStat::formatStatsTop(out, sizeof(out), c);
 
   EXPECT_LT(strlen(out), REPLY_CAP);
+}
+
+// ---- Counters: fork-derived additions (advert origin, path block, airtime) --
+
+TEST(FilterStatsCounters, RecordAdvertCountsOriginDrops) {
+  Counters c;
+
+  FilterStat::recordAdvert(c);
+  FilterStat::recordAdvert(c);
+
+  EXPECT_EQ(2u, c.advert);
+}
+
+TEST(FilterStatsCounters, RecordPathSplitsBySlot) {
+  Counters c;
+
+  FilterStat::recordPath(c, 0);
+  FilterStat::recordPath(c, 3);
+  FilterStat::recordPath(c, 3);
+
+  EXPECT_EQ(3u, c.path);
+  EXPECT_EQ(1u, c.path_slot[0]);
+  EXPECT_EQ(2u, c.path_slot[3]);
+}
+
+TEST(FilterStatsCounters, RecordPathKeepsTotalWhenSlotIsOutOfRange) {
+  Counters c;
+
+  FilterStat::recordPath(c, FILTER_PATH_COUNT);
+  FilterStat::recordPath(c, -1);
+
+  EXPECT_EQ(2u, c.path);
+  for (int i = 0; i < FILTER_PATH_COUNT; i++) EXPECT_EQ(0u, c.path_slot[i]);
+}
+
+TEST(FilterStatsCounters, RecordAirAccumulatesSaturating) {
+  Counters c;
+
+  FilterStat::recordAir(c, 1500);
+  FilterStat::recordAir(c, 250);
+  EXPECT_EQ(1750u, c.air_ms);
+
+  FilterStat::recordAir(c, 0xFFFFFFFFu);
+  EXPECT_EQ(0xFFFFFFFFu, c.air_ms);
+}
+
+TEST(FilterStatsCounters, ResetClearsTheNewBucketsToo) {
+  Counters c;
+  FilterStat::recordAdvert(c);
+  FilterStat::recordPath(c, 1);
+  FilterStat::recordAir(c, 9);
+
+  c.reset();
+
+  EXPECT_EQ(0u, c.advert);
+  EXPECT_EQ(0u, c.path);
+  EXPECT_EQ(0u, c.path_slot[1]);
+  EXPECT_EQ(0u, c.air_ms);
+}
+
+// ---- `filter` summary: dry-run marker ----------------------------------------
+
+TEST(FilterStatsSummary, KeepsTheEstablishedLayoutWhenNotInDryRun) {
+  Counters c;
+  char out[160];
+
+  FilterStat::formatSummary(out, sizeof(out), c, true, false);
+
+  EXPECT_STREQ("> Filter on: Blocked [ Hops: 0 | Rate: 0 | Channel: 0 | Hash: 0 | Malformed: 0 ]", out);
+}
+
+TEST(FilterStatsSummary, AppendsADryRunMarkerAfterTheBracket) {
+  Counters c;
+  char out[160];
+
+  FilterStat::formatSummary(out, sizeof(out), c, true, true);
+
+  EXPECT_STREQ("> Filter on: Blocked [ Hops: 0 | Rate: 0 | Channel: 0 | Hash: 0 | Malformed: 0 ] (dry-run)", out);
+}
+
+// ---- `filter stats advert` -----------------------------------------------------
+
+TEST(FilterStatsAdvert, ReportsWindowDropsAndCacheFill) {
+  Counters c;
+  c.advert = 42;
+  char out[160];
+
+  FilterStat::formatStatsAdvert(out, sizeof(out), c, 48, 17, 256);
+
+  EXPECT_STREQ("> Advert origins: window 48h, dropped 42, cache 17/256", out);
+}
+
+TEST(FilterStatsAdvert, SaysSoWhenTheLimiterIsOff) {
+  Counters c;
+  char out[160];
+
+  FilterStat::formatStatsAdvert(out, sizeof(out), c, 0, 0, 256);
+
+  EXPECT_STREQ("> Filter: advert origin limit off", out);
+}
+
+// ---- `filter stats path` and `filter path list` -------------------------------
+
+TEST(FilterStatsPath, ListsEveryPrefixWithItsDrops) {
+  Counters c;
+  c.path_slot[0] = 5;
+  c.path_slot[2] = 0;
+  PathPrefix list[FILTER_PATH_COUNT] = {};
+  ASSERT_TRUE(FilterPath::parse("A1", &list[0]));
+  ASSERT_TRUE(FilterPath::parse("B2C3", &list[2]));
+  char out[160];
+
+  FilterStat::formatPathList(out, sizeof(out), list, &c);
+
+  EXPECT_STREQ("A1: 5,B2C3: 0", out);
+}
+
+TEST(FilterStatsPath, ListsPrefixesWithoutCountsForTheSettingView) {
+  Counters c;
+  PathPrefix list[FILTER_PATH_COUNT] = {};
+  ASSERT_TRUE(FilterPath::parse("A1", &list[0]));
+  ASSERT_TRUE(FilterPath::parse("B2C3", &list[2]));
+  char out[160];
+
+  FilterStat::formatPathList(out, sizeof(out), list, nullptr);
+
+  EXPECT_STREQ("A1,B2C3", out);
+}
+
+TEST(FilterStatsPath, SaysNoneWhenNothingIsBlocked) {
+  PathPrefix list[FILTER_PATH_COUNT] = {};
+  char out[160];
+
+  FilterStat::formatPathList(out, sizeof(out), list, nullptr);
+
+  EXPECT_STREQ("None", out);
+}
+
+// ---- `filter stats air` --------------------------------------------------------
+
+TEST(FilterStatsAir, ReportsSavedAirtimeInMillisecondsAndHumanUnits) {
+  Counters c;
+  c.air_ms = 214500;
+  char out[160];
+
+  FilterStat::formatStatsAir(out, sizeof(out), c);
+
+  EXPECT_STREQ("> Filter: saved airtime 214500 ms (3m 34s)", out);
+}
+
+TEST(FilterStatsAir, SaysSoWhenNothingWasSaved) {
+  Counters c;
+  char out[160];
+
+  FilterStat::formatStatsAir(out, sizeof(out), c);
+
+  EXPECT_STREQ("> Filter: no airtime saved yet", out);
+}
+
+// ---- prefs migration helper ----------------------------------------------------
+
+TEST(FilterStatsPrefs, FieldLoadedOnlyWhenTheFileCoveredItEntirely) {
+  EXPECT_TRUE(FilterStat::fieldLoaded(10, 6, 4));
+  EXPECT_FALSE(FilterStat::fieldLoaded(9, 6, 4)) << "one byte short";
+  EXPECT_FALSE(FilterStat::fieldLoaded(0, 0, 1));
+  EXPECT_TRUE(FilterStat::fieldLoaded(100, 6, 4));
 }
 
 int main(int argc, char** argv) {

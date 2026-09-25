@@ -14,6 +14,7 @@ packets bypass it. State is persisted to `/filter_prefs`.
 - `filter help`
 - `filter on` / `filter off`
 - `filter reset`
+- `filter dryrun on|off` (count drops but keep forwarding; the status line ends in `(dry-run)`)
 - `filter types`
 - `filter count`
 - `filter hops <type> <max_hops>` (type `00`-`11`, hops `0`-`64`)
@@ -22,7 +23,12 @@ packets bypass it. State is persisted to `/filter_prefs`.
 - `filter channel list|add|remove <#name|Public>` (up to 16, GRP_TXT only)
 - `filter hash <min_bytes>` (1-3, minimum path-hash size)
 - `filter malformed on|off` (UTF-8 / structure validation of public GRP_TXT)
-- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top`
+- `filter advert <hours>` (0-720; each node's advert forwarded at most once per window,
+  `0` = off) / `filter advert clear`
+- `filter path list|add|remove <hex>` (up to 8 prefixes of 2-8 hex digits; drops everything
+  that came through a repeater whose ID starts with it)
+- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top|advert|path|air`
+  (`air` = estimated airtime saved)
 
 ### Packet types
 

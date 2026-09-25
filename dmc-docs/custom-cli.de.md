@@ -15,6 +15,7 @@ ACL-Kontaktpakete werden übersprungen. Der Zustand wird in `/filter_prefs` gesp
 - `filter help`
 - `filter on` / `filter off`
 - `filter reset`
+- `filter dryrun on|off` (Drops zählen, aber weiterhin weiterleiten; Statuszeile endet auf `(dry-run)`)
 - `filter types`
 - `filter count`
 - `filter hops <type> <max_hops>` (Typ `00`-`11`, Hops `0`-`64`)
@@ -23,7 +24,12 @@ ACL-Kontaktpakete werden übersprungen. Der Zustand wird in `/filter_prefs` gesp
 - `filter channel list|add|remove <#name|Public>` (bis zu 16, nur GRP_TXT)
 - `filter hash <min_bytes>` (1-3, minimale Path-Hash-Größe)
 - `filter malformed on|off` (UTF-8-/Strukturvalidierung von öffentlichem GRP_TXT)
-- `filter stats <topic>` mit topic = `hops|rate|hash|channel|malformed|top`
+- `filter advert <stunden>` (0-720; das Advert jedes Knotens höchstens einmal pro Fenster
+  weitergeleitet, `0` = aus) / `filter advert clear`
+- `filter path list|add|remove <hex>` (bis zu 8 Präfixe mit 2-8 Hex-Ziffern; verwirft alles,
+  was über einen Repeater mit diesem ID-Präfix kam)
+- `filter stats <topic>` mit topic = `hops|rate|hash|channel|malformed|top|advert|path|air`
+  (`air` = geschätzte eingesparte Sendezeit)
 
 ### Pakettypen
 

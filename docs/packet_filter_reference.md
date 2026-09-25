@@ -6,10 +6,16 @@ The filter can selectively block forwarded packets based on:
 
 * Hop count
 * Per-packet-type rate limits
+* Per-origin advert window (each node's advert at most once per N hours)
+* Blocked path prefixes (isolate one upstream repeater)
 * Minimum path hash size
 * Name of a group channel
 * Malformed group text messages
 * Packet type
+
+A **dry-run** mode counts every drop but still forwards, so a setting can be
+sized before it is enforced. Every drop also adds the packet's estimated
+time-on-air to a **saved airtime** counter.
 
 The filter is **disabled by default**.
 
@@ -29,6 +35,8 @@ that setting actually dropped. See [Statistics](#statistics).
 | `filter help` | List every subcommand |
 | `filter on` / `filter off` | Enable or disable filtering |
 | `filter reset` | Restore all settings to their defaults |
+| `filter dryrun` | Current dry-run state |
+| `filter dryrun on` / `filter dryrun off` | Count drops without dropping (see [Dry-run](#dry-run)) |
 | `filter types` | List the packet type IDs |
 | `filter count` | Hop and rate drops per packet type |
 | `filter hops` | Current hop limits |
@@ -41,13 +49,18 @@ that setting actually dropped. See [Statistics](#statistics).
 | `filter hash <bytes>` | Set the minimum path hash size |
 | `filter malformed` | Current malformed scan state |
 | `filter malformed on` / `filter malformed off` | Enable or disable the malformed scan |
+| `filter advert` | Current per-origin advert window and cache fill |
+| `filter advert <hours>` | Set the window (0-720 h; 0 = off) |
+| `filter advert clear` | Forget every remembered advert origin |
+| `filter path list` | Blocked path prefixes |
+| `filter path add <hex>` / `filter path remove <hex>` | Block or unblock a path prefix |
 | `filter stats <topic>` | Drops for one topic, in detail |
 
 The same list is available on the device:
 
 ```text
 filter help
-> filter [ help | on | off | reset | types | count | stats <topic> | hops <args> | rate <args> | channel <args> | hash <min_bytes> | malformed <on | off> ]
+> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path ]
 ```
 
 Commands that change a setting reply `> Filter: OK` unless noted otherwise.
@@ -86,6 +99,35 @@ filter reset
 
 This resets the settings, not the counters. Statistics are cleared by
 `clear stats` and on reboot.
+
+## Dry-run
+
+Not sure a limit is right? Turn on dry-run: every rule is evaluated and every
+drop is **counted exactly as it would be**, but the packet is still forwarded.
+
+```text
+filter dryrun on
+> Filter: dry-run on
+```
+
+While it is on, the status line carries a marker so the counters are not
+mistaken for real drops:
+
+```text
+filter
+> Filter on: Blocked [ Hops: 3 | Rate: 12 | Channel: 1 | Hash: 0 | Malformed: 2 ] (dry-run)
+```
+
+Watch `filter stats <topic>` and `filter stats air` until the numbers look
+right, then switch it off to enforce:
+
+```text
+filter dryrun off
+> Filter: dry-run off
+```
+
+Dry-run is persisted like every other setting, so a repeater left in dry-run
+stays in dry-run across a reboot. Default: `off`.
 
 ---
 
@@ -247,6 +289,113 @@ Default limits:
 | TRACE       | 5 / 60 s  |
 | MULTIPART   | 5 / 60 s  |
 | CONTROL     | 5 / 60 s  |
+
+---
+
+# Per-Origin Advert Window
+
+The per-type rate limit caps the *total* advert budget, so a node that
+re-advertises every few minutes eats the budget and legitimate nodes get
+dropped with it. The advert window works per node instead: **each origin's
+flood advert is forwarded at most once every N hours**. It still passes each
+node's advert once per window, so every node stays reachable through this
+repeater.
+
+Display the current window:
+
+```text
+filter advert
+> Filter: advert origin window 0h (cache 0/256)
+```
+
+Set the window:
+
+```text
+filter advert <hours>
+```
+
+Example:
+
+```text
+filter advert 48
+> Filter: OK
+```
+
+Each origin is now re-flooded at most once every 48 hours. Allowed values are
+`0` to `720` hours (30 days); `0` turns the window off. Origins are keyed on
+the first 4 bytes of the advert's public key and kept in a 256-entry cache;
+when it fills, the oldest entry is forgotten. The cache lives in RAM, so after
+a reboot every origin gets one free pass.
+
+Forget every remembered origin without changing the window:
+
+```text
+filter advert clear
+> Filter: advert cache cleared
+```
+
+The window runs *before* the per-type advert rate limit, so a repeat advert
+never consumes the budget of a legitimate one. Drops are reported by
+`filter stats advert`.
+
+Default:
+
+```text
+0 (off)
+```
+
+---
+
+# Blocked Path Prefixes
+
+Every flood packet carries the IDs of the repeaters that relayed it. When one
+upstream repeater keeps injecting junk, block its ID prefix and everything that
+travelled through it is dropped here, without needing the key to any channel.
+
+List the blocked prefixes:
+
+```text
+filter path list
+A1B2,C3
+```
+
+With nothing blocked the reply is `None`.
+
+Block a prefix:
+
+```text
+filter path add <hex>
+```
+
+Example:
+
+```text
+filter path add a1b2
+> Filter: path A1B2 added
+```
+
+A prefix is 2 to 8 hex digits (1 to 4 bytes), case-insensitive. Up to
+**8 prefixes** can be blocked. A packet is dropped when **any** entry of its
+path starts with a blocked prefix.
+
+Unblock a prefix:
+
+```text
+filter path remove A1B2
+> Filter: path A1B2 removed
+```
+
+Two things to know:
+
+* A prefix is compared against whole path entries, aligned to the packet's
+  path hash size. `A1B2` is one 2-byte ID: it matches a 2-byte entry starting
+  `A1B2`, never the two 1-byte entries `A1` then `B2`. A prefix **longer** than
+  the packet's hash size never matches, so to catch a repeater that floods with
+  1-byte hashes, block its 1-byte prefix (`A1`).
+* Short prefixes collide: `A1` also drops every other repeater whose ID starts
+  with `A1`. Use the longest prefix the traffic's hash size allows.
+
+Drops per prefix are reported by `filter stats path`.
 
 ---
 
@@ -419,7 +568,7 @@ detail that would not fit on the summary line.
 
 ```text
 filter stats
-> filter stats [ hops | rate | channel | hash | malformed | top ]
+> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air ]
 ```
 
 An unknown topic returns that same list.
@@ -435,6 +584,9 @@ printing an empty table:
 | `filter stats malformed` | `> Filter: no malformed drops recorded` |
 | `filter stats top` | `> Filter: no source drops recorded` |
 | `filter stats channel` | `None`, when no channels are blocked |
+| `filter stats advert` | `> Filter: advert origin limit off`, when the window is 0 |
+| `filter stats path` | `None`, when no prefixes are blocked |
+| `filter stats air` | `> Filter: no airtime saved yet` |
 
 The counters live in RAM, so this is also what you see after a reboot or a
 `clear stats`.
@@ -506,6 +658,37 @@ and REQ, RESPONSE, TXT\_MSG, ANON\_REQ and PATH packets. ACK and TRACE hold no
 identity and group traffic is encrypted, so those drops appear only in the
 totals.
 
+### advert
+
+```text
+filter stats advert
+> Advert origins: window 48h, dropped 132, cache 87/256
+```
+
+The window in force, the adverts dropped because their origin had already
+passed inside it, and how many origins the cache currently remembers.
+
+### path
+
+```text
+filter stats path
+A1B2: 412,C3: 0
+```
+
+Drops per blocked prefix, so you can tell which entry is doing the work.
+
+### air
+
+```text
+filter stats air
+> Filter: saved airtime 214500 ms (3m 34s)
+```
+
+The estimated time-on-air the dropped packets would have taken to retransmit,
+using the same estimate the repeater bills its own airtime with. In dry-run it
+is what the drops *would* have saved. This is usually the number that matters
+on a shared channel.
+
 ## Limits
 
 Counters saturate rather than wrap, so a busy repeater reports `4294967295`
@@ -532,6 +715,12 @@ The following settings persist across reboots:
 * Blocked channels
 * Minimum hash size
 * Malformed message filtering
+* Dry-run
+* Advert window (hours)
+* Blocked path prefixes
+
+Files written by older firmware are shorter; the settings they do not contain
+load at their defaults. The advert origin cache is not persisted.
 
 ---
 
@@ -563,6 +752,7 @@ filter malformed on
 filter rate 05 10 60
 filter rate 02 5 60
 filter rate 04 5 60
+filter advert 24
 filter hops 05 16
 filter hops 02 16
 filter hops 04 8
@@ -588,14 +778,39 @@ channel, so you can tell which entry is doing the work. Take into account that t
 
 ---
 
+## Isolating One Upstream Repeater
+
+```text
+filter path add <hex prefix>
+```
+
+Monitor `filter stats path` to confirm the entry is doing the work, and
+remember that a short prefix also catches every other repeater whose ID starts
+the same way.
+
+## Sizing a Setting Before Enforcing It
+
+```text
+filter dryrun on
+... apply the settings you are considering ...
+filter stats air
+filter dryrun off
+```
+
+Nothing is dropped while dry-run is on; the counters show what *would* be.
+
+---
+
 # Important Notes
 
 * Filtering is disabled by default. You have to enable it.
+* In dry-run every drop is counted but nothing is dropped; the status line ends in `(dry-run)`.
 * Only forwarded packets are filtered.
 * Direct-routed packets always bypass the filter.
 * Channel blocking only affects `GRP_TXT` packets.
 * Malformed message validation only applies to `GRP_TXT` packets.
-* Rate limits are applied per packet type, not per sender.
+* Rate limits are applied per packet type, not per sender. The advert window is the exception: it is per origin.
+* Path prefixes are matched against whole path entries; a prefix longer than the packet's hash size never matches.
 * Statistics live in RAM only. They are cleared on reboot and by `clear stats`, and they are never written to `/filter_prefs`.
 * Counters saturate at their maximum rather than wrapping around to zero.
 * A reply that does not fit the 160-byte CLI buffer ends in `..`.
@@ -611,9 +826,12 @@ channel, so you can tell which entry is doing the work. Take into account that t
 | `> Filter: error <type> range is 0-11` | Packet type outside `00`–`11` |
 | `> Filter: error <max_hops> range is 0-64` | Hop limit outside `0`–`64` |
 | `> Filter: error hash bytes range is 1-3` | Minimum path hash size outside `1`–`3` |
+| `> Filter: error <hours> range is 0-720` | Advert window outside `0`–`720` |
+| `> Filter: error path prefix is 2-8 hex digits` | Path prefix empty, odd-length, longer than 4 bytes, or not hex |
+| `> Filter: syntax error 'filter dryrun <on \| off>'` | Wrong argument |
 | `> Filter: syntax error 'filter hops <type> <max_hops>'` | Wrong number of arguments |
 | `> Filter: syntax error 'filter rate <type> <limit> <secs>'` | Wrong number of arguments |
 | `> Filter: syntax error 'filter channel [list \| add \| remove] <#name \| Public>'` | Wrong number of arguments |
-| `Failed` | `filter channel add` with the list full, or `remove` with no such channel |
+| `Failed` | `filter channel add` with the list full, or `remove` with no such channel; `filter path add` with the list full or the prefix already blocked, or `remove` with no such prefix |
 
 An unknown `filter stats` topic is not an error: it returns the list of topics.

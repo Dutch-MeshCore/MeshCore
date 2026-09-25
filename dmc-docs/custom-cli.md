@@ -15,6 +15,7 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
 - `filter help`
 - `filter on` / `filter off`
 - `filter reset`
+- `filter dryrun on|off` (drops tellen maar wél doorsturen; statusregel eindigt op `(dry-run)`)
 - `filter types`
 - `filter count`
 - `filter hops <type> <max_hops>` (type `00`-`11`, hops `0`-`64`)
@@ -23,7 +24,12 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
 - `filter channel list|add|remove <#naam|Public>` (max. 16, alleen GRP_TXT)
 - `filter hash <min_bytes>` (1-3, minimale path-hashgrootte)
 - `filter malformed on|off` (UTF-8-/structuurvalidatie van publieke GRP_TXT)
-- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top`
+- `filter advert <uren>` (0-720; elke node's advert hooguit één keer per venster doorgestuurd,
+  `0` = uit) / `filter advert clear`
+- `filter path list|add|remove <hex>` (max. 8 prefixen van 2-8 hexcijfers; blokkeert alles wat
+  via een repeater met dat ID-prefix kwam)
+- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top|advert|path|air`
+  (`air` = geschatte bespaarde zendtijd)
 
 ### Pakkettypes
 
