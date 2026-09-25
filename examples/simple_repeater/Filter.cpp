@@ -4,9 +4,9 @@
 // close to the limit, so guard it at compile time rather than let a future
 // subcommand overflow it silently.
 static const char FILTER_HELP[] =
-    "> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path | sender | text | watch ]";
+    "> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path | sender | text | watch | age ]";
 static const char FILTER_STATS_HELP[] =
-    "> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air | sender | text ]";
+    "> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air | sender | text | age ]";
 static const char FILTER_PATH_HELP[] =
     "> filter path [ list | add | remove ] <hex prefix, 2-8 digits>";
 static const char FILTER_RULE_HELP[] =
@@ -106,10 +106,11 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
       }
     }
 
-    // Content checks need the plaintext: the malformed scan (Public only) and
-    // the sender/text rules (Public plus the watch list). Decrypt once.
+    // Content checks need the plaintext: the malformed scan (Public only), and
+    // the age limit and sender/text rules (Public plus the watch list). Decrypt once.
     bool want_malformed = _prefs.filter_malformed && channel_hash == PUBLIC_CHANNEL_HASH;
-    const uint8_t* secret = hasContentRules() ? watchedSecret(channel_hash) : nullptr;
+    bool want_rules = hasContentRules();
+    const uint8_t* secret = (want_rules || _prefs.age_mins > 0) ? watchedSecret(channel_hash) : nullptr;
     if (want_malformed || secret != nullptr) {
       uint8_t data[MAX_PACKET_PAYLOAD + 1];
       int len = mesh::Utils::MACThenDecrypt(secret != nullptr ? secret : PUBLIC_CHANNEL_SECRET, data,
@@ -124,9 +125,20 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
         }
       }
 
+      // message age; len < 4 covers a failed MAC (hash collision with a
+      // channel we do not hold the key for), which has no timestamp to read
+      if (secret != nullptr && _prefs.age_mins > 0 && len >= 4) {
+        uint32_t ts;
+        memcpy(&ts, &data[0], 4);
+        if (MessageAge::tooOld(ts, _rtc->getCurrentTime(), _prefs.age_mins)) {
+          FilterStat::recordAge(_cnt);
+          return drop(packet);
+        }
+      }
+
       // sender / text rules; len == 0 means the MAC failed (hash collision with
       // a channel we do not hold the key for), so there is nothing to match
-      if (secret != nullptr && len > 0) {
+      if (secret != nullptr && want_rules && len > 0) {
         FilterRules::GroupText gt;
         if (FilterRules::parseGroupText(data, len, &gt)) {
           uint32_t now = millis();
@@ -247,6 +259,9 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
       strcpy(reply, FILTER_RULE_HELP);
     } else if (strcmp(parts[1], "watch") == 0) {
       strcpy(reply, FILTER_WATCH_HELP);
+    } else if (strcmp(parts[1], "age") == 0) {
+      FilterStat::formatStatsAge(reply, FILTER_REPLY_SIZE, _cnt, _prefs.age_mins,
+                                 MessageAge::clockSet(_rtc->getCurrentTime()));
     } else {
       strcpy(reply, "> Filter: command error");
     }
@@ -279,6 +294,9 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
         FilterStat::formatRuleList(reply, FILTER_REPLY_SIZE, _prefs.sender_rules, FILTER_RULE_COUNT, _cnt.sender_slot, _cnt.sender_pass);
       } else if (strcmp(parts[2], "text") == 0) {
         FilterStat::formatRuleList(reply, FILTER_REPLY_SIZE, _prefs.text_rules, FILTER_RULE_COUNT, _cnt.text_slot, _cnt.text_pass);
+      } else if (strcmp(parts[2], "age") == 0) {
+        FilterStat::formatStatsAge(reply, FILTER_REPLY_SIZE, _cnt, _prefs.age_mins,
+                                   MessageAge::clockSet(_rtc->getCurrentTime()));
       } else {
         strcpy(reply, FILTER_STATS_HELP);
       }
@@ -403,6 +421,23 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
           save(fs);
           strcpy(reply, "> Filter: OK");
         }
+      }
+
+    // message age
+    } else if (strcmp(parts[1], "age") == 0) {
+      const char* v = parts[2];
+      bool digits = v[0] != '\0';
+      for (const char* c = v; *c; c++) {
+        if (*c < '0' || *c > '9') { digits = false; break; }
+      }
+      long mins = digits ? atol(v) : -1;
+      if (strcmp(v, "off") == 0) mins = 0;
+      if (mins < 0 || mins > FILTER_AGE_MAX_MINS) {
+        strcpy(reply, "> Filter: error <minutes> range is 1-10080, or off");
+      } else {
+        _prefs.age_mins = (uint16_t)mins;
+        save(fs);
+        strcpy(reply, "> Filter: OK");
       }
 
     // path
@@ -763,10 +798,9 @@ bool Filter::validMessageContent(const uint8_t* data, uint8_t len, uint8_t* reas
   }
 
   // check timestamp
-  uint32_t now = _rtc->getCurrentTime();
   uint32_t timestamp;
   memcpy(&timestamp, &data[0], 4);
-  if (!timestamp || timestamp < now - INVALID_TIMESTAMP_WINDOW || timestamp > now + INVALID_TIMESTAMP_WINDOW) {
+  if (MessageAge::implausible(timestamp, _rtc->getCurrentTime())) {
     *reason = MALFORMED_TIMESTAMP;
     return false;
   }
@@ -877,6 +911,9 @@ bool Filter::load(FILESYSTEM* fs) {
   if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, watch_channels), sizeof(_prefs.watch_channels))) {
     for (int i = 0; i < FILTER_WATCH_COUNT; i++) _prefs.watch_channels[i] = ChannelDetails();
   }
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, age_mins), sizeof(_prefs.age_mins))) {
+    _prefs.age_mins = 0;
+  }
 
   _prefs.filter_enabled = constrain(_prefs.filter_enabled, 0, 1);
 
@@ -890,6 +927,7 @@ bool Filter::load(FILESYSTEM* fs) {
   _prefs.filter_malformed = constrain(_prefs.filter_malformed, 0, 1);
   _prefs.dryrun = constrain(_prefs.dryrun, 0, 1);
   _prefs.advert_hours = constrain(_prefs.advert_hours, 0, ADVERT_MAX_HOURS);
+  _prefs.age_mins = constrain(_prefs.age_mins, 0, FILTER_AGE_MAX_MINS);
   _advert.setWindowHours(_prefs.advert_hours);
   for (int i = 0; i < FILTER_PATH_COUNT; i++) {
     if (_prefs.path_block[i].len > FILTER_PATH_MAX_LEN) memset(&_prefs.path_block[i], 0, sizeof(PathPrefix));

@@ -32,7 +32,9 @@ ACL-Kontaktpakete werden übersprungen. Der Zustand wird in `/filter_prefs` gesp
   `secs` 0 = blockieren, sonst eine Nachricht pro `secs` durchlassen; `prob` 1-100 = Anteil, den die Regel entscheidet)
 - `filter text add <muster> [secs] [prob]` / `remove` / `list` (bis zu 8; Teilstring, `^` = Nachrichtenanfang)
 - `filter watch add|remove|list <#name>` (bis zu 4 Kanäle, die die Regeln lesen dürfen, neben Public)
-- `filter stats <topic>` mit topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text`
+- `filter age <Minuten>|off` (1-10080; verwirft Gruppennachrichten auf Public und beobachteten
+  Kanälen, die älter sind, nach der Uhr des Repeaters; inaktiv, solange die Uhr nicht gestellt ist)
+- `filter stats <topic>` mit topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text|age`
   (`air` = geschätzte eingesparte Sendezeit)
 
 ### Pakettypen

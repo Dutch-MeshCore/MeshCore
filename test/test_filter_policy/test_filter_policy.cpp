@@ -4,6 +4,7 @@
 // radio, filesystem or clock: the per-origin advert limiter and the path-prefix
 // block list. Both are pure functions of their inputs so they run on `native`.
 #include "../../examples/simple_repeater/AdvertLimiter.h"
+#include "../../examples/simple_repeater/MessageAge.h"
 #include "../../examples/simple_repeater/PathBlock.h"
 
 static const uint32_t HOUR_MS = 3600UL * 1000UL;
@@ -228,4 +229,66 @@ TEST(PathBlockMatch, SkipsEmptySlotsAndReportsTheFirstHit) {
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+}
+
+// ---- MessageAge ---------------------------------------------------------------
+
+static const uint32_t CLOCK_NOW = 1790000000;   // Sep 2026: a set clock
+static const uint32_t BOOT_CLOCK = 1715770351;  // 15 May 2024: what an unset clock boots at
+static const uint32_t MIN_S = 60;
+
+TEST(MessageAge, ClockSetOnlyFromTheCutoffOn) {
+  EXPECT_FALSE(MessageAge::clockSet(BOOT_CLOCK));
+  EXPECT_FALSE(MessageAge::clockSet(MessageAge::CLOCK_SET_AFTER - 1));
+  EXPECT_TRUE(MessageAge::clockSet(MessageAge::CLOCK_SET_AFTER));
+  EXPECT_TRUE(MessageAge::clockSet(CLOCK_NOW));
+}
+
+TEST(MessageAge, OffWhenMaxIsZero) {
+  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW - 30 * 24 * 3600, CLOCK_NOW, 0));
+}
+
+TEST(MessageAge, DropsOnlyWhatIsOlderThanTheLimit) {
+  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW, CLOCK_NOW, 30));
+  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW - 30 * MIN_S, CLOCK_NOW, 30));   // exactly at the limit
+  EXPECT_TRUE(MessageAge::tooOld(CLOCK_NOW - 30 * MIN_S - 1, CLOCK_NOW, 30));
+  EXPECT_TRUE(MessageAge::tooOld(CLOCK_NOW - 3 * 24 * 3600, CLOCK_NOW, 30));
+}
+
+TEST(MessageAge, FutureStampIsNeverTooOld) {
+  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW + 10 * MIN_S, CLOCK_NOW, 1));
+}
+
+TEST(MessageAge, ZeroStampIsTooOld) {
+  EXPECT_TRUE(MessageAge::tooOld(0, CLOCK_NOW, 60));
+}
+
+TEST(MessageAge, InactiveWhileTheClockIsUnset) {
+  // an unset clock would make every current message look far in the future,
+  // and a message stamped before boot look old: never judge age against it
+  EXPECT_FALSE(MessageAge::tooOld(BOOT_CLOCK - 3 * 24 * 3600, BOOT_CLOCK, 30));
+  EXPECT_FALSE(MessageAge::tooOld(0, BOOT_CLOCK, 30));
+}
+
+TEST(MessageAge, LimitIsCappedAtOneWeek) {
+  EXPECT_EQ(7u * 24u * 60u, (unsigned)FILTER_AGE_MAX_MINS);
+}
+
+TEST(MessageAgeImplausible, ZeroStampIsAlwaysImplausible) {
+  EXPECT_TRUE(MessageAge::implausible(0, CLOCK_NOW));
+  EXPECT_TRUE(MessageAge::implausible(0, BOOT_CLOCK));
+}
+
+TEST(MessageAgeImplausible, OutsideOneWeekIsImplausibleWithASetClock) {
+  const uint32_t week = 7 * 24 * 3600;
+  EXPECT_FALSE(MessageAge::implausible(CLOCK_NOW - week, CLOCK_NOW));
+  EXPECT_FALSE(MessageAge::implausible(CLOCK_NOW + week, CLOCK_NOW));
+  EXPECT_TRUE(MessageAge::implausible(CLOCK_NOW - week - 1, CLOCK_NOW));
+  EXPECT_TRUE(MessageAge::implausible(CLOCK_NOW + week + 1, CLOCK_NOW));
+}
+
+TEST(MessageAgeImplausible, WindowIsNotAppliedWhileTheClockIsUnset) {
+  // before this guard, a repeater without a set clock dropped every current
+  // Public message as "time" malformed once the malformed scan was on
+  EXPECT_FALSE(MessageAge::implausible(CLOCK_NOW, BOOT_CLOCK));
 }
