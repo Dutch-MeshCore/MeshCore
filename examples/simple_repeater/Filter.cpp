@@ -4,12 +4,24 @@
 // close to the limit, so guard it at compile time rather than let a future
 // subcommand overflow it silently.
 static const char FILTER_HELP[] =
-    "> filter [ help | on | off | reset | types | count | stats <topic> | hops <args> | rate <args> | channel <args> | hash <min_bytes> | malformed <on | off> ]";
+    "> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path ]";
 static const char FILTER_STATS_HELP[] =
-    "> filter stats [ hops | rate | channel | hash | malformed | top ]";
+    "> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air ]";
+static const char FILTER_PATH_HELP[] =
+    "> filter path [ list | add | remove ] <hex prefix, 2-8 digits>";
 
 static_assert(sizeof(FILTER_HELP) <= FILTER_REPLY_SIZE, "filter help text no longer fits the reply buffer");
 static_assert(sizeof(FILTER_STATS_HELP) <= FILTER_REPLY_SIZE, "filter stats help text no longer fits the reply buffer");
+static_assert(sizeof(FILTER_PATH_HELP) <= FILTER_REPLY_SIZE, "filter path help text no longer fits the reply buffer");
+
+bool Filter::drop(const mesh::Packet* packet) {
+  // The airtime this drop saves is what the repeater would have billed for
+  // relaying it; in dry-run it is what the drop *would* save.
+  if (_radio != nullptr) {
+    FilterStat::recordAir(_cnt, _radio->getEstAirtimeFor(packet->getRawLength()));
+  }
+  return _prefs.dryrun;   // dry-run: counted, but still forwarded
+}
 
 bool Filter::allowPacketForward(const mesh::Packet* packet) {
   if (!_prefs.filter_enabled) return true;
@@ -29,7 +41,16 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
   if (packet->getPathHashSize() < _prefs.minimal_hash_bytes) {
     FilterStat::recordHash(_cnt, packet->getPathHashSize(), type);
     if (have_src) FilterStat::recordSrc(_cnt, src);
-    return false;
+    return drop(packet);
+  }
+
+  // blocked path prefixes (a rogue upstream repeater)
+  int path_slot = FilterPath::findMatch(packet->path, packet->getPathHashSize(), packet->getPathHashCount(),
+                                        _prefs.path_block, FILTER_PATH_COUNT);
+  if (path_slot >= 0) {
+    FilterStat::recordPath(_cnt, path_slot);
+    if (have_src) FilterStat::recordSrc(_cnt, src);
+    return drop(packet);
   }
 
   if (type < PAYLOAD_TYPE_COUNT) {
@@ -37,13 +58,22 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
     if (packet->getPathHashCount() >= _prefs.payload_prefs[type].hops_max) {
       FilterStat::recordHops(_cnt, type);
       if (have_src) FilterStat::recordSrc(_cnt, src);
-      return false;
+      return drop(packet);
+    }
+    // per-origin advert window, ahead of the per-type limiter so a repeat
+    // advert never eats the budget of a legitimate one
+    if (type == PAYLOAD_TYPE_ADVERT && packet->payload_len >= ADVERT_KEY_LEN) {
+      if (!_advert.allow(packet->payload, millis())) {   // payload starts with the origin's pub_key
+        FilterStat::recordAdvert(_cnt);
+        if (have_src) FilterStat::recordSrc(_cnt, src);
+        return drop(packet);
+      }
     }
     // rate limiter (with optional probabilistic soft cutoff)
     if (!_limiters[type].allow(_rtc->getCurrentTime(), nextRandom())) {
       FilterStat::recordRate(_cnt, type);
       if (have_src) FilterStat::recordSrc(_cnt, src);
-      return false;
+      return drop(packet);
     }
   }
 
@@ -53,7 +83,7 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
     // regardless of the malformed scan setting. Counted so the drop is visible.
     if (packet->payload_len <= PATH_HASH_SIZE + CIPHER_MAC_SIZE) {
       FilterStat::recordMalformed(_cnt, MALFORMED_SHORT);
-      return false;
+      return drop(packet);
     }
 
     uint8_t channel_hash = packet->payload[0];
@@ -64,7 +94,7 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
       if (ch.name[0] == '\0') continue;
       if (channel_hash == ch.channel.hash[0]) {
         FilterStat::recordChannel(_cnt, i);
-        return false;
+        return drop(packet);
       }
     }
 
@@ -76,7 +106,7 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
         uint8_t reason;
         if (!validMessageContent(data, len, &reason)) {
           FilterStat::recordMalformed(_cnt, reason);
-          return false;
+          return drop(packet);
         }
       }
     }
@@ -136,7 +166,7 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
   int n = mesh::Utils::parseTextParts(command, parts, 6, ' ');
 
   if (n <= 1) {
-    FilterStat::formatSummary(reply, FILTER_REPLY_SIZE, _cnt, _prefs.filter_enabled);
+    FilterStat::formatSummary(reply, FILTER_REPLY_SIZE, _cnt, _prefs.filter_enabled, _prefs.dryrun);
   }
 
   if (n == 2) {
@@ -170,6 +200,13 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
       sprintf(reply, "> Filter: minimal %d bytes path hash size", _prefs.minimal_hash_bytes);
     } else if (strcmp(parts[1], "malformed") == 0) {
       sprintf(reply, "> Filter: malformed text scan %s", _prefs.filter_malformed ? "on" : "off");
+    } else if (strcmp(parts[1], "dryrun") == 0) {
+      sprintf(reply, "> Filter: dry-run %s", _prefs.dryrun ? "on" : "off");
+    } else if (strcmp(parts[1], "advert") == 0) {
+      sprintf(reply, "> Filter: advert origin window %uh (cache %d/%d)", (unsigned)_prefs.advert_hours,
+              _advert.getCount(), _advert.getCapacity());
+    } else if (strcmp(parts[1], "path") == 0) {
+      strcpy(reply, FILTER_PATH_HELP);
     } else {
       strcpy(reply, "> Filter: command error");
     }
@@ -191,6 +228,13 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
         FilterStat::formatStatsMalformed(reply, FILTER_REPLY_SIZE, _cnt);
       } else if (strcmp(parts[2], "top") == 0) {
         FilterStat::formatStatsTop(reply, FILTER_REPLY_SIZE, _cnt);
+      } else if (strcmp(parts[2], "advert") == 0) {
+        FilterStat::formatStatsAdvert(reply, FILTER_REPLY_SIZE, _cnt, _prefs.advert_hours,
+                                      _advert.getCount(), _advert.getCapacity());
+      } else if (strcmp(parts[2], "path") == 0) {
+        FilterStat::formatPathList(reply, FILTER_REPLY_SIZE, _prefs.path_block, &_cnt);
+      } else if (strcmp(parts[2], "air") == 0) {
+        FilterStat::formatStatsAir(reply, FILTER_REPLY_SIZE, _cnt);
       } else {
         strcpy(reply, FILTER_STATS_HELP);
       }
@@ -285,6 +329,64 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
         strcpy(reply, "> Filter: malformed scan off");
         save(fs);
       }
+
+    // dryrun
+    } else if (strcmp(parts[1], "dryrun") == 0) {
+      if (strcmp(parts[2], "on") == 0) {
+        _prefs.dryrun = true;
+        strcpy(reply, "> Filter: dry-run on");
+        save(fs);
+      } else if (strcmp(parts[2], "off") == 0) {
+        _prefs.dryrun = false;
+        strcpy(reply, "> Filter: dry-run off");
+        save(fs);
+      } else {
+        strcpy(reply, "> Filter: syntax error 'filter dryrun <on | off>'");
+      }
+
+    // advert
+    } else if (strcmp(parts[1], "advert") == 0) {
+      if (strcmp(parts[2], "clear") == 0) {
+        _advert.clear();
+        strcpy(reply, "> Filter: advert cache cleared");
+      } else {
+        long hours = atol(parts[2]);
+        if (hours < 0 || hours > ADVERT_MAX_HOURS) {
+          strcpy(reply, "> Filter: error <hours> range is 0-720");
+        } else {
+          _prefs.advert_hours = (uint16_t)hours;
+          _advert.setWindowHours(_prefs.advert_hours);
+          save(fs);
+          strcpy(reply, "> Filter: OK");
+        }
+      }
+
+    // path
+    } else if (strcmp(parts[1], "path") == 0) {
+      char hex[2 * FILTER_PATH_MAX_LEN + 1];
+      if (strcmp(parts[2], "list") == 0) {
+        FilterStat::formatPathList(reply, FILTER_REPLY_SIZE, _prefs.path_block, nullptr);
+      } else if (n >= 4 && strcmp(parts[2], "add") == 0) {
+        if (addPath(parts[3], hex)) {
+          sprintf(reply, "> Filter: path %s added", hex);
+          save(fs);
+        } else if (hex[0] == '\0') {
+          strcpy(reply, "> Filter: error path prefix is 2-8 hex digits");
+        } else {
+          strcpy(reply, "Failed");
+        }
+      } else if (n >= 4 && strcmp(parts[2], "remove") == 0) {
+        if (removePath(parts[3], hex)) {
+          sprintf(reply, "> Filter: path %s removed", hex);
+          save(fs);
+        } else if (hex[0] == '\0') {
+          strcpy(reply, "> Filter: error path prefix is 2-8 hex digits");
+        } else {
+          strcpy(reply, "Failed");
+        }
+      } else {
+        strcpy(reply, FILTER_PATH_HELP);
+      }
     } else {
       strcpy(reply, "> Filter: command error");
     }
@@ -331,6 +433,44 @@ bool Filter::removeChannel(const char* name) {
     ChannelDetails &ch = _prefs.filter_channels[i];
     if (strcmp(ch.name, name) == 0) {
       ch.name[0] = '\0';
+      return true;
+    }
+  }
+  return false;
+}
+
+// `formatted` receives the canonical upper-case prefix, or "" when `hex` did
+// not parse, so the caller can tell a bad prefix from a full or missing slot.
+bool Filter::addPath(const char* hex, char* formatted) {
+  formatted[0] = '\0';
+  PathPrefix p;
+  if (!FilterPath::parse(hex, &p)) return false;
+  FilterPath::format(formatted, 2 * FILTER_PATH_MAX_LEN + 1, p);
+
+  int free_slot = -1;
+  for (int i = 0; i < FILTER_PATH_COUNT; i++) {
+    PathPrefix& cur = _prefs.path_block[i];
+    if (cur.len == 0) {
+      if (free_slot < 0) free_slot = i;
+    } else if (cur.len == p.len && memcmp(cur.bytes, p.bytes, p.len) == 0) {
+      return false;   // already blocked
+    }
+  }
+  if (free_slot < 0) return false;
+  _prefs.path_block[free_slot] = p;
+  return true;
+}
+
+bool Filter::removePath(const char* hex, char* formatted) {
+  formatted[0] = '\0';
+  PathPrefix p;
+  if (!FilterPath::parse(hex, &p)) return false;
+  FilterPath::format(formatted, 2 * FILTER_PATH_MAX_LEN + 1, p);
+
+  for (int i = 0; i < FILTER_PATH_COUNT; i++) {
+    PathPrefix& cur = _prefs.path_block[i];
+    if (cur.len == p.len && memcmp(cur.bytes, p.bytes, p.len) == 0) {
+      memset(&cur, 0, sizeof(cur));
       return true;
     }
   }
@@ -479,9 +619,21 @@ bool Filter::load(FILESYSTEM* fs) {
 
   size_t got = file.read(reinterpret_cast<uint8_t*>(&_prefs), sizeof(_prefs));
 
-  // Pre-soft-cutoff files are shorter: the trailing soft_limit[] bytes weren't
-  // written, so discard whatever landed there (padding) and default them off.
-  if (got < sizeof(_prefs)) memset(_prefs.soft_limit, 0, sizeof(_prefs.soft_limit));
+  // Files written by older firmware are shorter: each field appended since is
+  // defaulted when the read did not cover it, so a newer field never inherits
+  // whatever landed there.
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, soft_limit), sizeof(_prefs.soft_limit))) {
+    memset(_prefs.soft_limit, 0, sizeof(_prefs.soft_limit));
+  }
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, advert_hours), sizeof(_prefs.advert_hours))) {
+    _prefs.advert_hours = 0;
+  }
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, dryrun), sizeof(_prefs.dryrun))) {
+    _prefs.dryrun = false;
+  }
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, path_block), sizeof(_prefs.path_block))) {
+    memset(_prefs.path_block, 0, sizeof(_prefs.path_block));
+  }
 
   _prefs.filter_enabled = constrain(_prefs.filter_enabled, 0, 1);
 
@@ -493,6 +645,12 @@ bool Filter::load(FILESYSTEM* fs) {
   }
   _prefs.minimal_hash_bytes = constrain(_prefs.minimal_hash_bytes, 1, 3);
   _prefs.filter_malformed = constrain(_prefs.filter_malformed, 0, 1);
+  _prefs.dryrun = constrain(_prefs.dryrun, 0, 1);
+  _prefs.advert_hours = constrain(_prefs.advert_hours, 0, ADVERT_MAX_HOURS);
+  _advert.setWindowHours(_prefs.advert_hours);
+  for (int i = 0; i < FILTER_PATH_COUNT; i++) {
+    if (_prefs.path_block[i].len > FILTER_PATH_MAX_LEN) memset(&_prefs.path_block[i], 0, sizeof(PathPrefix));
+  }
 
   file.close();
   return true;

@@ -10,6 +10,8 @@
 // env and the counting and formatting logic can be unit-tested off-device.
 #include <Packet.h>
 
+#include "PathBlock.h"
+
 #define FILTER_CHANNEL_COUNT 16
 
 // Widest path hash the wire format can encode: (path_len >> 6) + 1.
@@ -52,6 +54,11 @@ struct Counters {
   uint32_t channel_slot[FILTER_CHANNEL_COUNT] = {};      // drops per blocked channel
   uint32_t malformed_reason[MALFORMED_REASON_COUNT] = {};
   uint16_t src[FILTER_SRC_COUNT] = {};                   // drops per source hash byte
+
+  uint32_t advert = 0;                                   // adverts dropped by the per-origin window
+  uint32_t path = 0;                                     // drops by the path-prefix block list
+  uint32_t path_slot[FILTER_PATH_COUNT] = {};            // drops per blocked prefix
+  uint32_t air_ms = 0;                                   // estimated TX airtime not spent relaying drops
 
   void reset() { *this = Counters(); }
 };
@@ -97,6 +104,25 @@ namespace FilterStat {
 
   inline void recordSrc(Counters& c, uint8_t src_hash) {
     bump(c.src[src_hash]);
+  }
+
+  inline void recordAdvert(Counters& c) {
+    bump(c.advert);
+  }
+
+  inline void recordPath(Counters& c, int slot) {
+    bump(c.path);
+    if (slot >= 0 && slot < FILTER_PATH_COUNT) bump(c.path_slot[slot]);
+  }
+
+  inline void recordAir(Counters& c, uint32_t est_ms) {
+    c.air_ms = (c.air_ms > 0xFFFFFFFFu - est_ms) ? 0xFFFFFFFFu : c.air_ms + est_ms;
+  }
+
+  // True when a raw prefs read of `got` bytes covered the whole field at
+  // `offset`; fields appended after the file was written keep their defaults.
+  inline bool fieldLoaded(size_t got, size_t offset, size_t size) {
+    return got >= offset + size;
   }
 
   // Bounded, always-NUL-terminated text appender.
@@ -213,7 +239,7 @@ namespace FilterStat {
 
   // ---- `filter` and `filter count`: unchanged shapes, now bounded ------------
 
-  inline void formatSummary(char* out, size_t cap, const Counters& c, bool enabled) {
+  inline void formatSummary(char* out, size_t cap, const Counters& c, bool enabled, bool dryrun = false) {
     uint32_t hops_total = 0;
     uint32_t rate_total = 0;
     for (uint8_t i = 0; i < PAYLOAD_TYPE_COUNT; i++) {
@@ -226,6 +252,8 @@ namespace FilterStat {
           enabled ? "on" : "off",
           (unsigned long)hops_total, (unsigned long)rate_total,
           (unsigned long)c.channel, (unsigned long)c.hash, (unsigned long)c.malformed);
+    // Appended after the bracket so existing parsers of the bracket keep working.
+    if (dryrun) b.add(" (dry-run)");
     b.markTruncated("..");
   }
 
@@ -339,6 +367,70 @@ namespace FilterStat {
     b.add("> Top drops:");
     for (int i = 0; i < n; i++) {
       b.add(" %02x:%u", (unsigned)top[i].hash, (unsigned)top[i].count);
+    }
+    b.markTruncated("..");
+  }
+
+  // ---- fork-derived topics: advert origins, path block, saved airtime -------
+
+  inline void formatStatsAdvert(char* out, size_t cap, const Counters& c,
+                                uint16_t window_hours, int cache_count, int cache_size) {
+    Buf b(out, cap);
+
+    if (window_hours == 0) {
+      b.add("> Filter: advert origin limit off");
+      return;
+    }
+
+    b.add("> Advert origins: window %uh, dropped %lu, cache %d/%d",
+          (unsigned)window_hours, (unsigned long)c.advert, cache_count, cache_size);
+    b.markTruncated("..");
+  }
+
+  // `filter path list` (counts == nullptr) and `filter stats path` (with drops).
+  inline void formatPathList(char* out, size_t cap, const PathPrefix* list, const Counters* counts) {
+    Buf b(out, cap);
+    char hex[2 * FILTER_PATH_MAX_LEN + 1];
+    int listed = 0;
+
+    for (int i = 0; i < FILTER_PATH_COUNT; i++) {
+      if (list[i].len == 0) continue;
+      FilterPath::format(hex, sizeof(hex), list[i]);
+      if (counts != nullptr) {
+        b.add(listed > 0 ? ",%s: %lu" : "%s: %lu", hex, (unsigned long)counts->path_slot[i]);
+      } else {
+        b.add(listed > 0 ? ",%s" : "%s", hex);
+      }
+      listed++;
+    }
+
+    if (listed == 0) {
+      b.add("None");
+      return;
+    }
+    b.markTruncated("..");
+  }
+
+  inline void formatStatsAir(char* out, size_t cap, const Counters& c) {
+    Buf b(out, cap);
+
+    if (c.air_ms == 0) {
+      b.add("> Filter: no airtime saved yet");
+      return;
+    }
+
+    unsigned long secs = c.air_ms / 1000UL;
+    unsigned long h = secs / 3600UL;
+    unsigned long m = (secs / 60UL) % 60UL;
+    unsigned long sec = secs % 60UL;
+
+    b.add("> Filter: saved airtime %lu ms (", (unsigned long)c.air_ms);
+    if (h > 0) {
+      b.add("%luh %lum)", h, m);
+    } else if (m > 0) {
+      b.add("%lum %lus)", m, sec);
+    } else {
+      b.add("%lus)", sec);
     }
     b.markTruncated("..");
   }

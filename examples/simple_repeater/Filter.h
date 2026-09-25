@@ -6,8 +6,10 @@
 #include <helpers/ClientACL.h>
 #include <helpers/TxtDataHelpers.h>
 
+#include "AdvertLimiter.h"
 #include "FilterStats.h"
 #include "Limiter.h"
+#include "PathBlock.h"
 
 #define FILTER_PREFS_FILE    "/filter_prefs"
 
@@ -55,6 +57,11 @@ struct FilterPrefs {
   // Appended at the end of the struct so older /filter_prefs files (which lack
   // these bytes) still load: a short read leaves them at 0 = soft cutoff off.
   uint16_t soft_limit[PAYLOAD_TYPE_COUNT] = {};
+  // Likewise appended, in this order; load() defaults each one a shorter file
+  // did not cover.
+  uint16_t advert_hours = 0;                       // per-origin advert window, 0 = off
+  uint8_t dryrun = false;                          // count drops but still forward
+  PathPrefix path_block[FILTER_PATH_COUNT] = {};   // blocked path-ID prefixes
 };
 
 class Filter {
@@ -62,8 +69,14 @@ class Filter {
   mesh::RTCClock *_rtc;
   FilterPrefs _prefs;
   Limiter _limiters[PAYLOAD_TYPE_COUNT];
+  AdvertLimiter _advert;
+  mesh::Radio *_radio;   // optional: airtime estimate for the saved-airtime stat
   Counters _cnt;
   uint32_t _rng_state;
+
+  // Every drop funnels through here so dry-run and the airtime estimate apply
+  // to every reason alike. Returns the forwarding verdict.
+  bool drop(const mesh::Packet *packet);
 
   // xorshift32: cheap, dependency-free source of a random byte for the soft
   // cutoff. State is never allowed to reach 0 (that would freeze the sequence).
@@ -82,8 +95,13 @@ public:
       RATE
   };
 
-  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc), _rng_state(0xA5A5F00D) {}
-  void resetPrefs(void) { _prefs = FilterPrefs(); }
+  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc), _radio(nullptr), _rng_state(0xA5A5F00D) {}
+  void setRadio(mesh::Radio *radio) { _radio = radio; }
+  void resetPrefs(void) {
+    _prefs = FilterPrefs();
+    _advert.setWindowHours(0);
+    _advert.clear();
+  }
   void resetStats(void) { _cnt.reset(); }
   // Read-only access for the MQTT filter-stats publisher.
   const Counters& getCounters(void) const { return _cnt; }
@@ -98,6 +116,8 @@ public:
   bool removeChannel(const char *name);
   static bool getChannelHash(const char *name, mesh::GroupChannel *gc);
   void listChannelNames(char *out_buf, size_t out_size, bool with_counts = false);
+  bool addPath(const char *hex, char *formatted);
+  bool removePath(const char *hex, char *formatted);
   bool validMessageContent(const uint8_t *data, uint8_t len, uint8_t *reason);
   static bool isValidUTF8(const uint8_t *data, uint8_t len);
   bool load(FILESYSTEM *fs);

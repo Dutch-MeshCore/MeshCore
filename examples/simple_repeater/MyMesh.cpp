@@ -1166,6 +1166,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
+  _filter.setRadio(_radio);   // for the saved-airtime estimate on drops
   _filter.load(_fs);
 
   // establish default-scope
