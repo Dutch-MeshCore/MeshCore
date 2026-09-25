@@ -49,14 +49,19 @@ packets bypass it. State is persisted to `/filter_prefs`.
 
 ## Duty-cycle region gating
 
-`dc.gate.*`. **Off** by default. Sheds inter-region flood traffic when the repeater's own
-TX duty cycle is high. Transient: never written to the region config. Runs before the
-packet filter, so these drops do not appear in `filter stats`.
+`dc.gate.*`. **Off** by default. Sheds inter-region flood traffic when the repeater has
+used up most of its duty-cycle budget. Transient: never written to the region config. Runs
+before the packet filter, so these drops do not appear in `filter stats`.
 
-- `set dc.gate <0|1>` / `get dc.gate`
+- `set dc.gate <on|off>` / `get dc.gate` (`1`/`0` work too)
 - `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (default 70)
 - `set dc.gate.hyst <0-50>` / `get dc.gate.hyst` (default 10)
 - `get dc.gate.status` (e.g. `duty 74%, gate level 2/4`)
+
+The threshold, hysteresis and `duty` are a percentage of the **duty-cycle budget**
+(`set dutycycle`), not of wall-clock time. With `dutycycle 10` the repeater may transmit
+for 360 seconds per hour; `dc.gate.thresh 70` starts gating once 252 of those seconds are
+used. The threshold does not need to be below the duty-cycle limit.
 
 ## Duty cycle
 
