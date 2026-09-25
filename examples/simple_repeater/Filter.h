@@ -107,6 +107,8 @@ public:
   const Counters& getCounters(void) const { return _cnt; }
   const FilterPrefs& getPrefs(void) const { return _prefs; }
   bool isEnabled(void) const { return _prefs.filter_enabled; }
+  int getAdvertCacheCount(void) const { return _advert.getCount(); }
+  int getAdvertCacheCapacity(void) const { return _advert.getCapacity(); }
   bool allowPacketForward(const mesh::Packet *packet);
   bool hasPriority(const mesh::Packet *packet);
   static bool srcHash(const mesh::Packet *packet, uint8_t *out);

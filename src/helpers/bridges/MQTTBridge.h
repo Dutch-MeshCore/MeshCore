@@ -90,7 +90,10 @@ public:
   static const int kMaxNtpServers = 6;
 
   // Filter-stats JSON buffer size, shared with the mesh task that builds it.
-  static const size_t FILTER_JSON_BUFFER_SIZE = 2048;
+  // 3072: a busy repeater with every filter feature in use (all types dropping,
+  // 4 channels, 8 top sources, 8 path prefixes, advert window) serializes to
+  // ~2.4 KB; the bound is asserted by test_mqtt_filter_stats_json.
+  static const size_t FILTER_JSON_BUFFER_SIZE = 3072;
 
   // Node-config JSON buffer size: larger than filter-stats because the grouped
   // config payload carries many fields.

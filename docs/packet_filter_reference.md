@@ -709,11 +709,33 @@ over RF. Unlike the CLI reply there is no single-packet size limit, so the whole
 counter set plus the per-type configuration is sent uncut.
 
 The message carries: an identity envelope (`origin`, `origin_id`, `timestamp`,
-`uptime_secs`, `boot_id`, `enabled`); `totals` per reason; per-type `hops` and
-`rate` drops (non-zero types only); the `hash` size split and top blocked types;
-`malformed` reasons; per-channel `channels`; the worst `top_sources`; a
-`config` block with each type's `limit`/`secs`/`soft`/`hops_max`; and a
-`region_gate` block with the live duty-cycle region-gating state.
+`uptime_secs`, `boot_id`, `enabled`, `dryrun`); `totals` per reason (`hops`,
+`rate`, `channel`, `hash`, `malformed`, `advert`, `path`); `air_ms`, the
+estimated time-on-air the drops saved; per-type `hops` and `rate` drops
+(non-zero types only); the `hash` size split and top blocked types;
+`malformed` reasons; per-channel `channels`; the worst `top_sources`; the
+`advert` window state; the blocked `paths` with their drops; a `config` block
+with each type's `limit`/`secs`/`soft`/`hops_max`; and a `region_gate` block
+with the live duty-cycle region-gating state.
+
+### dryrun, advert, paths, air_ms
+
+```json
+"dryrun": false,
+"air_ms": 214500,
+"advert": { "window_h": 48, "cache": 87, "cache_size": 256 },
+"paths": [ { "prefix": "A1B2", "drops": 412 }, { "prefix": "C3", "drops": 0 } ]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `dryrun` | `true` while [dry-run](#dry-run) is on: every counter in the message then reports what *would* have been dropped, and nothing was. |
+| `totals.advert` | Adverts dropped by the [per-origin advert window](#per-origin-advert-window). |
+| `totals.path` | Packets dropped by the [blocked path prefixes](#blocked-path-prefixes). |
+| `air_ms` | Cumulative estimated time-on-air (ms) the drops saved, same estimate as `filter stats air`; in dry-run, what they would have saved. |
+| `advert.window_h` | The configured window in hours, `0` = off. |
+| `advert.cache` / `advert.cache_size` | Origins currently remembered and the cache capacity; `cache` at capacity means the oldest origins are being forgotten early. |
+| `paths[]` | One entry per blocked prefix (upper-case hex) with its drops. Omitted when nothing is blocked. |
 
 Because the counters are cumulative and saturate, an analyzer derives drop
 **rates** by differencing consecutive samples, and uses `boot_id`/`uptime_secs`

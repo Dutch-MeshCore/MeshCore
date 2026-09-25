@@ -1782,6 +1782,25 @@ void MyMesh::publishFilterStatsIfDue(uint32_t now) {
   }
   v.hash_top_count = nh;
 
+  // dry-run, per-origin advert window, path-prefix block list, saved airtime
+  v.dryrun = p.dryrun != 0;
+  v.advert_total = c.advert;
+  v.path_total = c.path;
+  v.air_ms = c.air_ms;
+  v.advert_window_h = p.advert_hours;
+  v.advert_cache = _filter.getAdvertCacheCount();
+  v.advert_cache_size = _filter.getAdvertCacheCapacity();
+  static char path_hex[FILTER_PATH_COUNT][2 * FILTER_PATH_MAX_LEN + 1];  // mesh task only
+  int np = 0;
+  for (int i = 0; i < FILTER_PATH_COUNT && np < FILTER_PATH_COUNT; i++) {
+    if (p.path_block[i].len == 0) continue;
+    FilterPath::format(path_hex[np], sizeof(path_hex[np]), p.path_block[i]);
+    v.paths[np].prefix = path_hex[np];
+    v.paths[np].drops = c.path_slot[i];
+    np++;
+  }
+  v.path_count = np;
+
   // duty-cycle region gating state (lets the observer see which repeaters are
   // shedding inter-region traffic, and how hard, across the mesh)
   v.dc_gate_enabled = _prefs.dc_gate_enabled != 0;
