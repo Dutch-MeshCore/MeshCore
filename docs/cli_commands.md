@@ -742,99 +742,55 @@ reports which of the two is active.
 
 #### Duty-cycle region gating
 
-Autonomously sheds inter-region flood traffic when this repeater's own TX duty
-cycle is high, protecting the local cluster during high-traffic or disruption
+Autonomously sheds inter-region flood traffic when this repeater has used up most
+of its duty-cycle budget, protecting the local cluster during high-traffic or disruption
 events — no admin access needed once configured. Opt-in and **off by default**.
 
 It reuses the existing [Region Management](#region-management-v110) hierarchy.
-When the TX duty cycle rises above the threshold, regions are gated from the
+When budget use rises above the threshold, regions are gated from the
 outermost layer inward — the wildcard `*` first, then the broadest named regions
 — always keeping the innermost cluster and the operator's home region open. As
-the duty cycle recovers below `threshold − hysteresis`, regions re-open
+budget use recovers below `threshold − hysteresis`, regions re-open
 inside-out, with a small random per-step delay so nearby repeaters don't all
 recover in lockstep. The gate is transient: it is never written to the region
 config, so a `region save` or a reboot mid-event can never make a deny permanent.
 
 **Usage:**
-- `set dc.gate <0|1>` — enable (`1`) or disable (`0`) the feature
+- `set dc.gate <on|off>` — enable or disable the feature (`1`/`0` work too)
 - `get dc.gate` — show whether it is on or off
-- `set dc.gate.thresh <1-100>` — TX duty-cycle % above which gating starts
+- `set dc.gate.thresh <1-100>` — % of the duty-cycle budget used above which gating starts
 - `get dc.gate.thresh`
-- `set dc.gate.hyst <0-50>` — recovery margin %: regions re-open below `(threshold − hysteresis)`
+- `set dc.gate.hyst <0-50>` — recovery margin in percentage points: regions re-open below `(threshold − hysteresis)`
 - `get dc.gate.hyst`
-- `get dc.gate.status` — live TX duty cycle % and current gate level (`level/max`)
+- `get dc.gate.status` — live % of the duty-cycle budget used, and current gate level (`level/max`)
 
-**Defaults:** disabled; threshold `70`; hysteresis `10` (so recovery begins below 60%).
+**Defaults:** off; threshold `70`; hysteresis `10` (so recovery begins below 60%).
+
+**What the percentage measures:**
+
+`dc.gate.thresh`, `dc.gate.hyst` and the `duty` in `get dc.gate.status` are a
+percentage of this repeater's **duty-cycle budget** (set with
+[`set dutycycle`](#view-or-change-the-duty-cycle-limit)), **not** a percentage of
+wall-clock time. The budget is the airtime the duty-cycle limit allows per
+hour, and it refills continuously. `duty 0%` means the full budget is
+available; `duty 100%` means it is used up and the repeater has to hold back
+transmissions until it refills.
+
+For example, with `set dutycycle 10` the repeater may transmit for 360 seconds
+per hour. With the default threshold of `70`, gating starts once 70% of that
+budget is used (252 seconds, so less than 108 seconds left), and regions
+start re-opening once usage drops below 60% (216 seconds). The threshold
+therefore does **not** have to be set below the duty-cycle limit: `70` or `80`
+is sensible with a 1%, 10% or any other limit.
+
+With no duty-cycle limit (`set dutycycle 100`, or `auto` outside the
+863-870 MHz table) the budget is the whole hour, so the percentage then does
+equal the share of wall-clock time spent transmitting.
 
 **Examples:**
-- `set dc.gate 1` — turn gating on
-- `set dc.gate.thresh 80` — only start shedding above 80% duty cycle
-- `set dc.gate.hyst 15` — re-open regions once duty cycle drops below 65%
-- `get dc.gate.status` — e.g. `> duty 74%, gate level 2/4`
-
-**Notes:**
-- The innermost (deepest) region layer and the configured home region are never gated.
-- A repeater with no named regions (wildcard only) never gates — the wildcard *is* its local cluster.
-
-**How it interacts with the packet filter:**
-
-Region gating and the [packet filter](#packet-filter-repeater-only) are
-complementary and run in a fixed order on each flood packet — region gating
-first, the packet filter second:
-
-1. Region gating decides whether the packet's **region** may flood at all
-   (config deny **or** the transient duty-cycle gate). A gated region's packets
-   are dropped here.
-2. Only packets that pass then reach the packet filter, which applies its
-   per-type hop/rate limits, soft cutoff and channel/source blocks.
-
-Because a region-gated packet is dropped *before* the filter sees it, the two
-never double-count: region-gating drops do **not** appear in the `filter stats`
-counters (watch the gate via `get dc.gate.status` instead). They also can't
-conflict — both only ever *deny* forwarding, never re-enable it.
-
-They shed on different axes: region gating is coarse and load-adaptive
-(*whose* traffic, driven by this repeater's own TX duty cycle), while the filter
-is fine-grained and policy-driven (*what* traffic, by configured limits). Running
-both is defense-in-depth and recommended; just note that both shed **flood**
-traffic, so on a saturated repeater they stack — keep the filter's limits for
-locally-relevant types generous if you rely on region gating as the first-line
-congestion response. Region gating is off by default, so enabling it layers on
-top of an existing filter configuration without disturbing it. Directed
-(non-flood) traffic is never region-gated.
-
----
-
-#### Duty-cycle region gating
-
-Autonomously sheds inter-region flood traffic when this repeater's own TX duty
-cycle is high, protecting the local cluster during high-traffic or disruption
-events — no admin access needed once configured. Opt-in and **off by default**.
-
-It reuses the existing [Region Management](#region-management-v110) hierarchy.
-When the TX duty cycle rises above the threshold, regions are gated from the
-outermost layer inward — the wildcard `*` first, then the broadest named regions
-— always keeping the innermost cluster and the operator's home region open. As
-the duty cycle recovers below `threshold − hysteresis`, regions re-open
-inside-out, with a small random per-step delay so nearby repeaters don't all
-recover in lockstep. The gate is transient: it is never written to the region
-config, so a `region save` or a reboot mid-event can never make a deny permanent.
-
-**Usage:**
-- `set dc.gate <0|1>` — enable (`1`) or disable (`0`) the feature
-- `get dc.gate` — show whether it is on or off
-- `set dc.gate.thresh <1-100>` — TX duty-cycle % above which gating starts
-- `get dc.gate.thresh`
-- `set dc.gate.hyst <0-50>` — recovery margin %: regions re-open below `(threshold − hysteresis)`
-- `get dc.gate.hyst`
-- `get dc.gate.status` — live TX duty cycle % and current gate level (`level/max`)
-
-**Defaults:** disabled; threshold `70`; hysteresis `10` (so recovery begins below 60%).
-
-**Examples:**
-- `set dc.gate 1` — turn gating on
-- `set dc.gate.thresh 80` — only start shedding above 80% duty cycle
-- `set dc.gate.hyst 15` — re-open regions once duty cycle drops below 65%
+- `set dc.gate on` — turn gating on
+- `set dc.gate.thresh 80` — only start shedding once 80% of the duty-cycle budget is used
+- `set dc.gate.hyst 15` — re-open regions once usage drops below 65% of the budget
 - `get dc.gate.status` — e.g. `> duty 74%, gate level 2/4`
 
 **Notes:**
