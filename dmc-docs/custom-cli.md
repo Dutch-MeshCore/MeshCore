@@ -38,15 +38,20 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
 
 ## Duty-cycle region gating
 
-`dc.gate.*`. Standaard **uit**. Werpt inter-regio-floodverkeer af wanneer de eigen
-TX-duty-cycle van de repeater hoog is. Transient: wordt nooit naar de regioconfiguratie
-weggeschreven. Draait vóór de packet filter, dus deze drops verschijnen niet in
-`filter stats`.
+`dc.gate.*`. Standaard **uit**. Werpt inter-regio-floodverkeer af wanneer de repeater
+het grootste deel van zijn duty-cycle-budget heeft verbruikt. Transient: wordt nooit naar
+de regioconfiguratie weggeschreven. Draait vóór de packet filter, dus deze drops
+verschijnen niet in `filter stats`.
 
-- `set dc.gate <0|1>` / `get dc.gate`
+- `set dc.gate <on|off>` / `get dc.gate` (`1`/`0` werkt ook)
 - `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (standaard 70)
 - `set dc.gate.hyst <0-50>` / `get dc.gate.hyst` (standaard 10)
 - `get dc.gate.status` (bijv. `duty 74%, gate level 2/4`)
+
+De drempel, de hysterese en `duty` zijn een percentage van het **duty-cycle-budget**
+(`set dutycycle`), niet van de kloktijd. Met `dutycycle 10` mag de repeater 360 seconden
+per uur zenden; `dc.gate.thresh 70` start de gating zodra 252 van die seconden zijn
+verbruikt. De drempel hoeft dus niet onder de duty-cycle-limiet te liggen.
 
 ## Duty cycle
 

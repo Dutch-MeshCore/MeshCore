@@ -38,15 +38,20 @@ ACL-Kontaktpakete werden übersprungen. Der Zustand wird in `/filter_prefs` gesp
 
 ## Duty-Cycle-Region-Gating
 
-`dc.gate.*`. Standardmäßig **aus**. Wirft Inter-Regions-Flood-Verkehr ab, wenn der eigene
-TX-Duty-Cycle des Repeaters hoch ist. Transient: wird nie in die Regionskonfiguration
-geschrieben. Läuft vor dem Packet-Filter, daher erscheinen diese Drops nicht in
-`filter stats`.
+`dc.gate.*`. Standardmäßig **aus**. Wirft Inter-Regions-Flood-Verkehr ab, wenn der
+Repeater den größten Teil seines Duty-Cycle-Budgets verbraucht hat. Transient: wird nie in
+die Regionskonfiguration geschrieben. Läuft vor dem Packet-Filter, daher erscheinen diese
+Drops nicht in `filter stats`.
 
-- `set dc.gate <0|1>` / `get dc.gate`
+- `set dc.gate <on|off>` / `get dc.gate` (`1`/`0` funktionieren auch)
 - `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (Standard 70)
 - `set dc.gate.hyst <0-50>` / `get dc.gate.hyst` (Standard 10)
 - `get dc.gate.status` (z. B. `duty 74%, gate level 2/4`)
+
+Schwelle, Hysterese und `duty` sind ein Prozentsatz des **Duty-Cycle-Budgets**
+(`set dutycycle`), nicht der Uhrzeit. Mit `dutycycle 10` darf der Repeater 360 Sekunden
+pro Stunde senden; `dc.gate.thresh 70` beginnt mit dem Gating, sobald 252 dieser Sekunden
+verbraucht sind. Die Schwelle muss also nicht unter dem Duty-Cycle-Limit liegen.
 
 ## Duty-Cycle
 
