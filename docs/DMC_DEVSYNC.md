@@ -59,6 +59,27 @@ retired once the consolidation is confirmed good.
 - **Windows native tests show `ERRORED` on any nonzero exit**; run the built `program.exe` under pio's
   environment (not bare Git Bash — that gives a spurious exit 127 from missing MinGW DLLs on PATH).
 
+## Follow-up sync 2026-09-25 (`upstream/dev` @ `aa1c46e1`)
+
+Plain merge of 52 upstream commits; version stays `v1.17.1.01` (upstream is still `v1.17.1`).
+Only textual conflict: `simple_sensor/SensorMesh.cpp` includes (keep `DutyCycleLimits.h` + upstream's
+two). Semantic checks that were clean, for the next sync to re-check:
+
+- `CommonRadioPrefs::get/setAgcResetInt` widened `uint8_t`→`uint16_t` (pure virtual). Only subclasses
+  are repeater/room `RadioPrefs` (`CommonCLI.h`) and companion's (`NodePrefs.h`); upstream fixed both.
+  A DMC-only subclass with the old signature would silently become abstract.
+- `simple_sensor` now owns a `RegionMap` (region load/save, `temp_map` copy-assign). Safe with the
+  gating overlay because every `RegionEntry` path zeroes `rt_flags`; only the repeater calls
+  `applyDutyGate`.
+- New `Board::loop()` hook is called once per main loop; no DMC board overrides it.
+- `RAK_4631_companion_radio_ble` flash −13.7 KB is upstream's companion UI refactor: pure upstream
+  shows the same delta (475,940 → 462,244); DMC overhead unchanged at ~1 KB.
+
+Verified: native 112/112, `native_region_gating` 20/20 (identical to pre-merge baseline); builds green
+for heltec_v4 repeater/room/companion ble+wifi/sensor/kiss_modem, Heltec_v3_terminal_chat,
+RAK_4631 repeater/companion_ble/sensor, Heltec_E290_repeater, and the new ThinkNode_M4_repeater,
+WioTrackerL1-1W repeater/companion_ble, muzi_base_duo repeater/companion_ble.
+
 ## Propagation TODO (not done here — scope was `dmc-dev`)
 
 The whole point of consolidating onto `dmc-dev` was to make these clean. Each deserves its own branch

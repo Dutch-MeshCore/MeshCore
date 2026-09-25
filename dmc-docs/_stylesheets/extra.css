@@ -1,0 +1,54 @@
+/* Brand fonts (self-hosted, from DutchMeshCore-Branding) */
+@font-face { font-family:'Aldrich'; src:url('../_fonts/aldrich-v22-latin-400.woff2') format('woff2'); font-weight:400; font-display:swap; }
+@font-face { font-family:'IBM Plex Sans'; src:url('../_fonts/ibm-plex-sans-latin-var.woff2') format('woff2'); font-weight:100 700; font-display:swap; }
+@font-face { font-family:'IBM Plex Mono'; src:url('../_fonts/ibm-plex-mono-latin-400.woff2') format('woff2'); font-weight:400; font-display:swap; }
+@font-face { font-family:'IBM Plex Mono'; src:url('../_fonts/ibm-plex-mono-latin-600.woff2') format('woff2'); font-weight:600; font-display:swap; }
+
+:root {
+  --md-text-font: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --md-code-font: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  /* DMC brand constants (identical in both themes) */
+  --dmc-red:#df2020; --dmc-white:#f4f4f5; --dmc-blue:#1976e8;
+  --dmc-green:#3ecf8e; --dmc-yellow:#f5c542;
+}
+
+/* Headings and brand use Aldrich, uppercased */
+.md-typeset h1, .md-typeset h2, .md-typeset h3,
+.md-header__title, .md-nav__title {
+  font-family:'Aldrich', 'Segoe UI', system-ui, sans-serif;
+  text-transform:uppercase; letter-spacing:.03em;
+}
+
+/* Dark palette (Material slate) mapped to DMC dark tokens */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color:#060709;
+  --md-default-fg-color:#e9edf4;
+  --md-default-fg-color--light:#b9c1cf;
+  --md-default-fg-color--lighter:#6b7480;
+  --md-primary-fg-color:#1976e8;
+  --md-accent-fg-color:#61a8ff;
+  --md-typeset-a-color:#61a8ff;
+  --md-code-bg-color:rgba(0,0,0,.38);
+  --md-primary-bg-color:#e9edf4;
+}
+
+/* Light palette (Material default) mapped to DMC light tokens */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color:#f4f6fb;
+  --md-default-fg-color:#1a1c2e;
+  --md-default-fg-color--light:#5c6487;
+  --md-default-fg-color--lighter:#8a90ab;
+  --md-primary-fg-color:#3d6fdb;
+  --md-accent-fg-color:#3455b0;
+  --md-typeset-a-color:#3d6fdb;
+}
+
+/* Tricolour top stripe (DMC signature cue) */
+.dmc-stripe { height:4px; background:linear-gradient(90deg, var(--dmc-red), var(--dmc-white) 50%, var(--dmc-blue)); }
+
+/* Best-effort dark body glow (red top-left, blue top-right) */
+[data-md-color-scheme="slate"] .md-main {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(223,32,32,.10), transparent 30%),
+    radial-gradient(circle at 82% 0%, rgba(25,118,232,.10), transparent 32%);
+}
