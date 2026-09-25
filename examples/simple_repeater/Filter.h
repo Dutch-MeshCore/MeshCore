@@ -9,6 +9,7 @@
 #include "AdvertLimiter.h"
 #include "FilterStats.h"
 #include "Limiter.h"
+#include "MessageAge.h"
 #include "PathBlock.h"
 #include "SenderRules.h"
 
@@ -23,7 +24,6 @@ static const uint8_t PUBLIC_CHANNEL_SECRET[PUB_KEY_SIZE] = { 0x8B, 0x33, 0x87, 0
                                                              0,    0,    0,    0,    0,    0,    0,    0,
                                                              0,    0,    0,    0,    0,    0,    0,    0 };
 static const uint8_t PUBLIC_CHANNEL_HASH = 0x11;
-static const uint32_t INVALID_TIMESTAMP_WINDOW = (7 * 24 * 60 * 60); // 1 week
 
 struct ChannelDetails {
   mesh::GroupChannel channel;
@@ -66,6 +66,7 @@ struct FilterPrefs {
   SenderRule sender_rules[FILTER_RULE_COUNT] = {};  // group-text sender rules (ordered)
   TextRule text_rules[FILTER_RULE_COUNT] = {};      // group-text text rules (ordered)
   ChannelDetails watch_channels[FILTER_WATCH_COUNT]; // channels decrypted for the rules, besides Public
+  uint16_t age_mins = 0;                           // drop group text older than this, 0 = off
 };
 
 class Filter {

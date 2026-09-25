@@ -32,7 +32,9 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
   `secs` 0 = blokkeren, anders 1 bericht per `secs` doorlaten; `prob` 1-100 = aandeel dat de regel beslist)
 - `filter text add <patroon> [secs] [prob]` / `remove` / `list` (max. 8; substring, `^` = begin van het bericht)
 - `filter watch add|remove|list <#naam>` (max. 4 kanalen die de regels mogen lezen, naast Public)
-- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text`
+- `filter age <minuten>|off` (1-10080; groepsberichten op Public en gevolgde kanalen die ouder zijn
+  dan dit worden gedropt, volgens de klok van de repeater; doet niets zolang de klok niet is gezet)
+- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text|age`
   (`air` = geschatte bespaarde zendtijd)
 
 ### Pakkettypes

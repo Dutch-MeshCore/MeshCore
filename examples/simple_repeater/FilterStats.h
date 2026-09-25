@@ -68,6 +68,8 @@ struct Counters {
   uint32_t sender_pass[FILTER_RULE_COUNT] = {};          // within-budget throttle passes per sender rule
   uint32_t text_pass[FILTER_RULE_COUNT] = {};            // within-budget throttle passes per text rule
 
+  uint32_t age = 0;                                      // group texts dropped by `filter age`
+
   void reset() { *this = Counters(); }
 };
 
@@ -131,6 +133,10 @@ namespace FilterStat {
   inline void recordText(Counters& c, int slot) {
     bump(c.text);
     if (slot >= 0 && slot < FILTER_RULE_COUNT) bump(c.text_slot[slot]);
+  }
+
+  inline void recordAge(Counters& c) {
+    bump(c.age);
   }
 
   inline void recordAir(Counters& c, uint32_t est_ms) {
@@ -402,6 +408,19 @@ namespace FilterStat {
 
     b.add("> Advert origins: window %uh, dropped %lu, cache %d/%d",
           (unsigned)window_hours, (unsigned long)c.advert, cache_count, cache_size);
+    b.markTruncated("..");
+  }
+
+  inline void formatStatsAge(char* out, size_t cap, const Counters& c, uint16_t max_mins, bool clock_set) {
+    Buf b(out, cap);
+
+    if (max_mins == 0) {
+      b.add("> Filter: message age limit off");
+      return;
+    }
+
+    b.add("> Message age: max %um, dropped %lu", (unsigned)max_mins, (unsigned long)c.age);
+    if (!clock_set) b.add(" (clock not set, inactive)");
     b.markTruncated("..");
   }
 

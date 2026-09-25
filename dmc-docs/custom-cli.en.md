@@ -31,7 +31,9 @@ packets bypass it. State is persisted to `/filter_prefs`.
   `secs` 0 = block, else pass one message per `secs`; `prob` 1-100 = share of matches the rule decides)
 - `filter text add <pattern> [secs] [prob]` / `remove` / `list` (up to 8; substring, `^` = start of message)
 - `filter watch add|remove|list <#name>` (up to 4 channels the rules may read, besides Public)
-- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text`
+- `filter age <minutes>|off` (1-10080; drop group texts on Public and watched channels older than
+  this, by the repeater's clock; inactive while the clock is not set)
+- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text|age`
   (`air` = estimated airtime saved)
 
 ### Packet types

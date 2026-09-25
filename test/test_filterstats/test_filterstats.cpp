@@ -829,3 +829,41 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+// ---- message age -------------------------------------------------------------
+
+TEST(FilterStatsAge, RecordAgeCountsDrops) {
+  Counters c;
+  FilterStat::recordAge(c);
+  FilterStat::recordAge(c);
+  EXPECT_EQ(2u, c.age);
+}
+
+TEST(FilterStatsAge, SaysOffWhenNoLimitIsSet) {
+  Counters c;
+  char out[160];
+  FilterStat::formatStatsAge(out, sizeof(out), c, 0, true);
+  EXPECT_STREQ("> Filter: message age limit off", out);
+}
+
+TEST(FilterStatsAge, ShowsLimitAndDrops) {
+  Counters c;
+  c.age = 7;
+  char out[160];
+  FilterStat::formatStatsAge(out, sizeof(out), c, 30, true);
+  EXPECT_STREQ("> Message age: max 30m, dropped 7", out);
+}
+
+TEST(FilterStatsAge, FlagsAnUnsetClock) {
+  Counters c;
+  char out[160];
+  FilterStat::formatStatsAge(out, sizeof(out), c, 30, false);
+  EXPECT_STREQ("> Message age: max 30m, dropped 0 (clock not set, inactive)", out);
+}
+
+TEST(FilterStatsAge, ResetClearsTheCounter) {
+  Counters c;
+  c.age = 3;
+  c.reset();
+  EXPECT_EQ(0u, c.age);
+}

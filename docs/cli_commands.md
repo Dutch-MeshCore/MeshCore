@@ -246,6 +246,7 @@ filter
 - `filter stats path` — drops per blocked path prefix
 - `filter stats air` — estimated time-on-air the drops saved (in dry-run: would have saved)
 - `filter stats sender` / `filter stats text` — drops (and throttle passes) per sender/text rule
+- `filter stats age` — group texts dropped by the message age limit (`filter age <minutes>|off`)
 
 **Example:**
 ```text
