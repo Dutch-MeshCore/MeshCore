@@ -808,9 +808,10 @@ The message carries: an identity envelope (`origin`, `origin_id`, `timestamp`,
 estimated time-on-air the drops saved; per-type `hops` and `rate` drops
 (non-zero types only); the `hash` size split and top blocked types;
 `malformed` reasons; per-channel `channels`; the worst `top_sources`; the
-`advert` window state; the blocked `paths` with their drops; a `config` block
-with each type's `limit`/`secs`/`soft`/`hops_max`; and a `region_gate` block
-with the live duty-cycle region-gating state.
+`advert` window state; the blocked `paths` with their drops; the `senders` and
+`texts` rules with their drops and passes, and the `watch` list; a `config`
+block with each type's `limit`/`secs`/`soft`/`hops_max`; and a `region_gate`
+block with the live duty-cycle region-gating state.
 
 ### dryrun, advert, paths, air_ms
 
@@ -830,6 +831,9 @@ with the live duty-cycle region-gating state.
 | `advert.window_h` | The configured window in hours, `0` = off. |
 | `advert.cache` / `advert.cache_size` | Origins currently remembered and the cache capacity; `cache` at capacity means the oldest origins are being forgotten early. |
 | `paths[]` | One entry per blocked prefix (upper-case hex) with its drops. Omitted when nothing is blocked. |
+| `totals.sender` / `totals.text` | Drops by the [sender and text rules](#sender-and-text-rules). |
+| `senders[]` / `texts[]` | One entry per rule, in evaluation order: `pattern`, `secs` (0 = block), `prob`, `drops`, and `pass` (throttle passes within budget). Omitted when no rule is set. |
+| `watch[]` | Channel names the rules may read besides Public. Omitted when empty. |
 
 Because the counters are cumulative and saturate, an analyzer derives drop
 **rates** by differencing consecutive samples, and uses `boot_id`/`uptime_secs`

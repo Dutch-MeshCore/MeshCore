@@ -6,10 +6,10 @@
 
 // Header-only JSON shaping of the observer `filter` topic. It depends only on
 // ArduinoJson and the POD view struct, so the exact payload contract (and its
-// size against the 3 KB publish buffer) is verified on `native`.
+// size against the 4 KB publish buffer) is verified on `native`.
 #include "helpers/MQTTFilterStatsJson.h"
 
-static const size_t PUBLISH_BUFFER = 3072;   // MQTTBridge::FILTER_JSON_BUFFER_SIZE
+static const size_t PUBLISH_BUFFER = 4096;   // MQTTBridge::FILTER_JSON_BUFFER_SIZE
 
 static void envelope(MQTTFilterStatsView& v) {
   v.origin = "repeater-1";
@@ -99,6 +99,44 @@ TEST(MQTTFilterStatsJson, PublishesBlockedPathPrefixesWithDropsOnlyWhenConfigure
   EXPECT_STREQ("C3", doc["paths"][1]["prefix"]);
 }
 
+TEST(MQTTFilterStatsJson, PublishesSenderAndTextRulesWithTheirCountsOnlyWhenSet) {
+  MQTTFilterStatsView v;
+  envelope(v);
+
+  JsonDocument none;
+  deserializeJson(none, render(v));
+  EXPECT_FALSE(none["senders"].is<JsonArray>());
+  EXPECT_FALSE(none["texts"].is<JsonArray>());
+  EXPECT_FALSE(none["watch"].is<JsonArray>());
+
+  v.sender_total = 15;
+  v.text_total = 7;
+  v.senders[0] = { "Bob", 60, 100, 12, 3 };
+  v.senders[1] = { "Bot*", 0, 50, 3, 0 };
+  v.sender_count = 2;
+  v.texts[0] = { "^BEACON", 0, 100, 7, 0 };
+  v.text_count = 1;
+  v.watch[0] = "#bots";
+  v.watch_count = 1;
+
+  JsonDocument doc;
+  deserializeJson(doc, render(v));
+
+  EXPECT_EQ(15u, doc["totals"]["sender"].as<uint32_t>());
+  EXPECT_EQ(7u, doc["totals"]["text"].as<uint32_t>());
+  ASSERT_EQ(2u, doc["senders"].size());
+  EXPECT_STREQ("Bob", doc["senders"][0]["pattern"]);
+  EXPECT_EQ(60, doc["senders"][0]["secs"].as<int>());
+  EXPECT_EQ(100, doc["senders"][0]["prob"].as<int>());
+  EXPECT_EQ(12u, doc["senders"][0]["drops"].as<uint32_t>());
+  EXPECT_EQ(3u, doc["senders"][0]["pass"].as<uint32_t>());
+  EXPECT_EQ(50, doc["senders"][1]["prob"].as<int>());
+  ASSERT_EQ(1u, doc["texts"].size());
+  EXPECT_STREQ("^BEACON", doc["texts"][0]["pattern"]);
+  ASSERT_EQ(1u, doc["watch"].size());
+  EXPECT_STREQ("#bots", doc["watch"][0]);
+}
+
 // A busy repeater with every feature in use must still fit the publish buffer,
 // otherwise the message is silently skipped (buildFilterStatsMessage returns 0).
 TEST(MQTTFilterStatsJson, HeavyRealisticPayloadFitsThePublishBuffer) {
@@ -133,6 +171,19 @@ TEST(MQTTFilterStatsJson, HeavyRealisticPayloadFitsThePublishBuffer) {
   static const char* prefixes[] = { "A1B2C3D4", "B2C3D4E5", "C3D4E5F6", "D4E5F6A7", "E5F6A7B8", "F6A7B8C9", "A7B8C9D0", "B8C9D0E1" };
   for (int i = 0; i < 8; i++) { v.paths[i].prefix = prefixes[i]; v.paths[i].drops = 123456; }
   v.path_count = 8;
+  v.sender_total = 999999;
+  v.text_total = 999999;
+  static const char* snames[] = { "SpamBot12345678", "Bot*", "Alice", "Bob", "Carol", "Dave", "Erin", "Frank" };
+  static const char* tpats[] = { "^BEACON", "RX_in_place_report_1234", "spam", "buy", "sell", "crypto", "^ID:", "test" };
+  for (int i = 0; i < 8; i++) {
+    v.senders[i] = { snames[i], 65535, 50, 123456, 123456 };
+    v.texts[i] = { tpats[i], 65535, 50, 123456, 123456 };
+  }
+  v.sender_count = 8;
+  v.text_count = 8;
+  static const char* wnames[] = { "#wardriving-long-name-here", "#memes", "#weather", "#local" };
+  for (int i = 0; i < 4; i++) v.watch[i] = wnames[i];
+  v.watch_count = 4;
   v.dc_gate_enabled = true;
   v.dc_gate_duty = 100; v.dc_gate_level = 4; v.dc_gate_max_level = 4;
   v.dc_gate_threshold = 70; v.dc_gate_hysteresis = 10;

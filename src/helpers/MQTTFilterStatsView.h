@@ -25,6 +25,8 @@ struct MQTTFilterStatsView {
   uint32_t advert_total = 0;             // drops by the per-origin advert window
   uint32_t path_total = 0;               // drops by the path-prefix block list
   uint32_t air_ms = 0;                   // estimated TX airtime the drops saved
+  uint32_t sender_total = 0;             // drops by sender rules
+  uint32_t text_total = 0;               // drops by text rules
   uint32_t hash_size[4] = {};            // drops by path-hash size 1B..4B
   uint32_t malformed_reason[4] = {};     // short/time/empty/utf8
 
@@ -55,6 +57,17 @@ struct MQTTFilterStatsView {
   struct Path { const char* prefix; uint32_t drops; };
   Path paths[8] = {};
   int path_count = 0;
+
+  // sender / text rules in evaluation order (pattern strings persist in prefs)
+  struct Rule { const char* pattern; uint16_t secs; uint8_t prob; uint32_t drops; uint32_t pass; };
+  Rule senders[8] = {};
+  int sender_count = 0;
+  Rule texts[8] = {};
+  int text_count = 0;
+
+  // channels the rules may read besides Public
+  const char* watch[4] = {};
+  int watch_count = 0;
 
   // --- duty-cycle region gating (transient runtime state; see RegionMap::applyDutyGate) ---
   bool    dc_gate_enabled = false;   // feature opt-in flag

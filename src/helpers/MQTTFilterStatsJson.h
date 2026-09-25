@@ -12,6 +12,17 @@
 // not fit is dropped whole, which is why the heavy-payload test exists.
 namespace MQTTFilterStatsJson {
 
+  inline void addRules(JsonArray arr, const MQTTFilterStatsView::Rule* rules, int count) {
+    for (int i = 0; i < count; i++) {
+      JsonObject e = arr.add<JsonObject>();
+      e["pattern"] = rules[i].pattern;   // persists in filter prefs
+      e["secs"] = rules[i].secs;
+      e["prob"] = rules[i].prob;
+      e["drops"] = rules[i].drops;
+      e["pass"] = rules[i].pass;
+    }
+  }
+
   inline void fill(JsonObject root, const MQTTFilterStatsView& v) {
     root["timestamp"] = v.timestamp;
     root["origin"] = v.origin;
@@ -34,6 +45,8 @@ namespace MQTTFilterStatsJson {
     totals["malformed"] = v.malformed_total;
     totals["advert"] = v.advert_total;
     totals["path"] = v.path_total;
+    totals["sender"] = v.sender_total;
+    totals["text"] = v.text_total;
     root["air_ms"] = v.air_ms;
 
     char key[4];  // two-digit type id, mutable so ArduinoJson copies it
@@ -108,6 +121,15 @@ namespace MQTTFilterStatsJson {
         e["prefix"] = v.paths[i].prefix;      // persists in the caller's buffer
         e["drops"] = v.paths[i].drops;
       }
+    }
+
+    // Sender / text rules with their drops and throttle passes; each list is
+    // omitted when empty, as is the watch list.
+    if (v.sender_count > 0) addRules(root["senders"].to<JsonArray>(), v.senders, v.sender_count);
+    if (v.text_count > 0) addRules(root["texts"].to<JsonArray>(), v.texts, v.text_count);
+    if (v.watch_count > 0) {
+      JsonArray watch = root["watch"].to<JsonArray>();
+      for (int i = 0; i < v.watch_count; i++) watch.add(v.watch[i]);   // persists in prefs
     }
 
     JsonObject cfg = root["config"].to<JsonObject>();

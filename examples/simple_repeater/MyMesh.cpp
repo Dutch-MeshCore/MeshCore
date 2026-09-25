@@ -1801,6 +1801,35 @@ void MyMesh::publishFilterStatsIfDue(uint32_t now) {
   }
   v.path_count = np;
 
+  // sender / text rules and the watch list (strings persist in prefs)
+  v.sender_total = c.sender;
+  v.text_total = c.text;
+  int ns = 0, ntx = 0, nw = 0;
+  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
+    if (p.sender_rules[i].name[0] != '\0') {
+      v.senders[ns].pattern = p.sender_rules[i].name;
+      v.senders[ns].secs = p.sender_rules[i].secs;
+      v.senders[ns].prob = p.sender_rules[i].prob;
+      v.senders[ns].drops = c.sender_slot[i];
+      v.senders[ns].pass = c.sender_pass[i];
+      ns++;
+    }
+    if (p.text_rules[i].text[0] != '\0') {
+      v.texts[ntx].pattern = p.text_rules[i].text;
+      v.texts[ntx].secs = p.text_rules[i].secs;
+      v.texts[ntx].prob = p.text_rules[i].prob;
+      v.texts[ntx].drops = c.text_slot[i];
+      v.texts[ntx].pass = c.text_pass[i];
+      ntx++;
+    }
+  }
+  for (int i = 0; i < FILTER_WATCH_COUNT; i++) {
+    if (p.watch_channels[i].name[0] != '\0') v.watch[nw++] = p.watch_channels[i].name;
+  }
+  v.sender_count = ns;
+  v.text_count = ntx;
+  v.watch_count = nw;
+
   // duty-cycle region gating state (lets the observer see which repeaters are
   // shedding inter-region traffic, and how hard, across the mesh)
   v.dc_gate_enabled = _prefs.dc_gate_enabled != 0;
