@@ -27,6 +27,7 @@ struct MQTTFilterStatsView {
   uint32_t air_ms = 0;                   // estimated TX airtime the drops saved
   uint32_t sender_total = 0;             // drops by sender rules
   uint32_t text_total = 0;               // drops by text rules
+  uint32_t age_total = 0;                // group texts dropped by the message age limit
   uint32_t hash_size[4] = {};            // drops by path-hash size 1B..4B
   uint32_t malformed_reason[4] = {};     // short/time/empty/utf8
 
@@ -52,6 +53,10 @@ struct MQTTFilterStatsView {
   uint16_t advert_window_h = 0;          // 0 = off
   int advert_cache = 0;                  // origins currently remembered
   int advert_cache_size = 0;             // cache capacity
+
+  // message age limit (config + whether the clock is trusted, i.e. the limit is live)
+  uint16_t age_max_mins = 0;             // 0 = off
+  bool age_clock_set = false;            // false: the limit is inactive
 
   // blocked path prefixes with their drops (prefix strings persist in the caller)
   struct Path { const char* prefix; uint32_t drops; };

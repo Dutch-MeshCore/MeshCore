@@ -1790,6 +1790,9 @@ void MyMesh::publishFilterStatsIfDue(uint32_t now) {
   v.advert_window_h = p.advert_hours;
   v.advert_cache = _filter.getAdvertCacheCount();
   v.advert_cache_size = _filter.getAdvertCacheCapacity();
+  v.age_total = c.age;
+  v.age_max_mins = p.age_mins;
+  v.age_clock_set = MessageAge::clockSet(getRTCClock()->getCurrentTime());
   static char path_hex[FILTER_PATH_COUNT][2 * FILTER_PATH_MAX_LEN + 1];  // mesh task only
   int np = 0;
   for (int i = 0; i < FILTER_PATH_COUNT && np < FILTER_PATH_COUNT; i++) {

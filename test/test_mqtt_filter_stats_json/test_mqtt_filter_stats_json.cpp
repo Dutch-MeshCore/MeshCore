@@ -77,6 +77,33 @@ TEST(MQTTFilterStatsJson, PublishesTheAdvertWindowState) {
   EXPECT_EQ(256, doc["advert"]["cache_size"].as<int>());
 }
 
+TEST(MQTTFilterStatsJson, PublishesTheMessageAgeLimit) {
+  MQTTFilterStatsView v;
+  envelope(v);
+  v.age_total = 37;
+  v.age_max_mins = 60;
+  v.age_clock_set = true;
+
+  JsonDocument doc;
+  deserializeJson(doc, render(v));
+
+  EXPECT_EQ(37u, doc["totals"]["age"].as<uint32_t>());
+  EXPECT_EQ(60, doc["age"]["max_mins"].as<int>());
+  EXPECT_TRUE(doc["age"]["clock_set"].as<bool>());
+}
+
+TEST(MQTTFilterStatsJson, AgeLimitOffStillReportsTheClockState) {
+  MQTTFilterStatsView v;
+  envelope(v);
+
+  JsonDocument doc;
+  deserializeJson(doc, render(v));
+
+  EXPECT_EQ(0, doc["age"]["max_mins"].as<int>());
+  EXPECT_FALSE(doc["age"]["clock_set"].as<bool>());
+  EXPECT_EQ(0u, doc["totals"]["age"].as<uint32_t>());
+}
+
 TEST(MQTTFilterStatsJson, PublishesBlockedPathPrefixesWithDropsOnlyWhenConfigured) {
   MQTTFilterStatsView v;
   envelope(v);
@@ -156,6 +183,9 @@ TEST(MQTTFilterStatsJson, HeavyRealisticPayloadFitsThePublishBuffer) {
   v.malformed_total = 999999;
   v.advert_total = 999999;
   v.path_total = 999999;
+  v.age_total = 999999;
+  v.age_max_mins = 10080;
+  v.age_clock_set = true;
   v.air_ms = 4294967295u;
   for (int j = 0; j < 4; j++) { v.hash_size[j] = 123456; v.malformed_reason[j] = 123456; }
   static const char* names[] = { "#wardriving", "#memes", "#weather", "#local" };

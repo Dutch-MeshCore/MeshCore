@@ -47,6 +47,7 @@ namespace MQTTFilterStatsJson {
     totals["path"] = v.path_total;
     totals["sender"] = v.sender_total;
     totals["text"] = v.text_total;
+    totals["age"] = v.age_total;
     root["air_ms"] = v.air_ms;
 
     char key[4];  // two-digit type id, mutable so ArduinoJson copies it
@@ -112,6 +113,11 @@ namespace MQTTFilterStatsJson {
     adv["window_h"] = v.advert_window_h;
     adv["cache"] = v.advert_cache;
     adv["cache_size"] = v.advert_cache_size;
+
+    // Message age limit; clock_set false means it is inactive until the clock is set.
+    JsonObject age = root["age"].to<JsonObject>();
+    age["max_mins"] = v.age_max_mins;
+    age["clock_set"] = v.age_clock_set;
 
     // Blocked path prefixes with their drops; omitted entirely when none are set.
     if (v.path_count > 0) {

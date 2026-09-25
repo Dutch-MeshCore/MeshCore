@@ -858,21 +858,22 @@ counter set plus the per-type configuration is sent uncut.
 
 The message carries: an identity envelope (`origin`, `origin_id`, `timestamp`,
 `uptime_secs`, `boot_id`, `enabled`, `dryrun`); `totals` per reason (`hops`,
-`rate`, `channel`, `hash`, `malformed`, `advert`, `path`); `air_ms`, the
+`rate`, `channel`, `hash`, `malformed`, `advert`, `path`, `sender`, `text`, `age`); `air_ms`, the
 estimated time-on-air the drops saved; per-type `hops` and `rate` drops
 (non-zero types only); the `hash` size split and top blocked types;
 `malformed` reasons; per-channel `channels`; the worst `top_sources`; the
-`advert` window state; the blocked `paths` with their drops; the `senders` and
+`advert` window state; the `age` limit state; the blocked `paths` with their drops; the `senders` and
 `texts` rules with their drops and passes, and the `watch` list; a `config`
 block with each type's `limit`/`secs`/`soft`/`hops_max`; and a `region_gate`
 block with the live duty-cycle region-gating state.
 
-### dryrun, advert, paths, air_ms
+### dryrun, advert, age, paths, air_ms
 
 ```json
 "dryrun": false,
 "air_ms": 214500,
 "advert": { "window_h": 48, "cache": 87, "cache_size": 256 },
+"age": { "max_mins": 60, "clock_set": true },
 "paths": [ { "prefix": "A1B2", "drops": 412 }, { "prefix": "C3", "drops": 0 } ]
 ```
 
@@ -888,6 +889,9 @@ block with the live duty-cycle region-gating state.
 | `totals.sender` / `totals.text` | Drops by the [sender and text rules](#sender-and-text-rules). |
 | `senders[]` / `texts[]` | One entry per rule, in evaluation order: `pattern`, `secs` (0 = block), `prob`, `drops`, and `pass` (throttle passes within budget). Omitted when no rule is set. |
 | `watch[]` | Channel names the rules may read besides Public. Omitted when empty. |
+| `totals.age` | Group texts dropped by the [message age limit](#message-age-limit). |
+| `age.max_mins` | The configured limit in minutes, `0` = off. |
+| `age.clock_set` | `false` while the repeater's clock is not set; the limit is then inactive and drops nothing. |
 
 Because the counters are cumulative and saturate, an analyzer derives drop
 **rates** by differencing consecutive samples, and uses `boot_id`/`uptime_secs`
