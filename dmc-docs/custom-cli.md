@@ -28,7 +28,11 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
   `0` = uit) / `filter advert clear`
 - `filter path list|add|remove <hex>` (max. 8 prefixen van 2-8 hexcijfers; blokkeert alles wat
   via een repeater met dat ID-prefix kwam)
-- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top|advert|path|air`
+- `filter sender add <naam> [secs] [prob]` / `remove` / `list` (max. 8; naam exact, `Bot*` = prefix;
+  `secs` 0 = blokkeren, anders 1 bericht per `secs` doorlaten; `prob` 1-100 = aandeel dat de regel beslist)
+- `filter text add <patroon> [secs] [prob]` / `remove` / `list` (max. 8; substring, `^` = begin van het bericht)
+- `filter watch add|remove|list <#naam>` (max. 4 kanalen die de regels mogen lezen, naast Public)
+- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text`
   (`air` = geschatte bespaarde zendtijd)
 
 ### Pakkettypes

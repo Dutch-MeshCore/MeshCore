@@ -3,6 +3,7 @@
 // Header-only drop statistics for the repeater packet filter.
 #include "../../examples/simple_repeater/FilterStats.h"
 #include "../../examples/simple_repeater/PathBlock.h"
+#include "../../examples/simple_repeater/SenderRules.h"
 
 // ---- Buf: bounded, always-terminated appender -------------------------------
 
@@ -752,6 +753,76 @@ TEST(FilterStatsPrefs, FieldLoadedOnlyWhenTheFileCoveredItEntirely) {
   EXPECT_FALSE(FilterStat::fieldLoaded(9, 6, 4)) << "one byte short";
   EXPECT_FALSE(FilterStat::fieldLoaded(0, 0, 1));
   EXPECT_TRUE(FilterStat::fieldLoaded(100, 6, 4));
+}
+
+// ---- Counters + formatting: sender/text rules ------------------------------------
+
+TEST(FilterStatsCounters, RecordSenderAndTextSplitBySlot) {
+  Counters c;
+
+  FilterStat::recordSender(c, 2);
+  FilterStat::recordSender(c, 2);
+  FilterStat::recordText(c, 0);
+  FilterStat::recordText(c, FILTER_RULE_COUNT);
+
+  EXPECT_EQ(2u, c.sender);
+  EXPECT_EQ(2u, c.sender_slot[2]);
+  EXPECT_EQ(2u, c.text);
+  EXPECT_EQ(1u, c.text_slot[0]);
+}
+
+static void mkRule(SenderRule& r, const char* name, uint16_t secs, uint8_t prob) {
+  memset(&r, 0, sizeof(r));
+  strncpy(r.name, name, sizeof(r.name) - 1);
+  r.secs = secs;
+  r.prob = prob;
+}
+
+TEST(FilterStatsRules, ListsEveryRuleWithItsMode) {
+  SenderRule rules[FILTER_RULE_COUNT] = {};
+  mkRule(rules[0], "Bot*", 60, 100);
+  mkRule(rules[2], "Spam", 0, 30);
+  mkRule(rules[3], "Alice", 0, 100);
+  char out[160];
+
+  FilterStat::formatRuleList(out, sizeof(out), rules, FILTER_RULE_COUNT, nullptr, nullptr);
+
+  EXPECT_STREQ("Bot* throttle 60s,Spam block 30%,Alice block", out);
+}
+
+TEST(FilterStatsRules, ListsDropsAndPassesForTheStatsView) {
+  SenderRule rules[FILTER_RULE_COUNT] = {};
+  mkRule(rules[0], "Bot*", 60, 100);
+  mkRule(rules[1], "Spam", 0, 100);
+  uint32_t drops[FILTER_RULE_COUNT] = { 12, 5 };
+  uint32_t passes[FILTER_RULE_COUNT] = { 3, 0 };
+  char out[160];
+
+  FilterStat::formatRuleList(out, sizeof(out), rules, FILTER_RULE_COUNT, drops, passes);
+
+  EXPECT_STREQ("Bot*: 12 (pass 3),Spam: 5", out);
+}
+
+TEST(FilterStatsRules, SaysNoneWhenNoRuleIsSet) {
+  SenderRule rules[FILTER_RULE_COUNT] = {};
+  char out[160];
+
+  FilterStat::formatRuleList(out, sizeof(out), rules, FILTER_RULE_COUNT, nullptr, nullptr);
+
+  EXPECT_STREQ("None", out);
+}
+
+TEST(FilterStatsRules, WorksForTextRulesToo) {
+  TextRule rules[FILTER_RULE_COUNT] = {};
+  memset(&rules[0], 0, sizeof(rules[0]));
+  strncpy(rules[0].text, "^BEACON", sizeof(rules[0].text) - 1);
+  rules[0].secs = 0;
+  rules[0].prob = 100;
+  char out[160];
+
+  FilterStat::formatRuleList(out, sizeof(out), rules, FILTER_RULE_COUNT, nullptr, nullptr);
+
+  EXPECT_STREQ("^BEACON block", out);
 }
 
 int main(int argc, char** argv) {

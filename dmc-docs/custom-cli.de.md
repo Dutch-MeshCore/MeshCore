@@ -28,7 +28,11 @@ ACL-Kontaktpakete werden übersprungen. Der Zustand wird in `/filter_prefs` gesp
   weitergeleitet, `0` = aus) / `filter advert clear`
 - `filter path list|add|remove <hex>` (bis zu 8 Präfixe mit 2-8 Hex-Ziffern; verwirft alles,
   was über einen Repeater mit diesem ID-Präfix kam)
-- `filter stats <topic>` mit topic = `hops|rate|hash|channel|malformed|top|advert|path|air`
+- `filter sender add <name> [secs] [prob]` / `remove` / `list` (bis zu 8; Name exakt, `Bot*` = Präfix;
+  `secs` 0 = blockieren, sonst eine Nachricht pro `secs` durchlassen; `prob` 1-100 = Anteil, den die Regel entscheidet)
+- `filter text add <muster> [secs] [prob]` / `remove` / `list` (bis zu 8; Teilstring, `^` = Nachrichtenanfang)
+- `filter watch add|remove|list <#name>` (bis zu 4 Kanäle, die die Regeln lesen dürfen, neben Public)
+- `filter stats <topic>` mit topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text`
   (`air` = geschätzte eingesparte Sendezeit)
 
 ### Pakettypen

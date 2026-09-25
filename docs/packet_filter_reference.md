@@ -10,6 +10,7 @@ The filter can selectively block forwarded packets based on:
 * Blocked path prefixes (isolate one upstream repeater)
 * Minimum path hash size
 * Name of a group channel
+* Sender name or message text of a group text (block, throttle, or dose)
 * Malformed group text messages
 * Packet type
 
@@ -54,13 +55,19 @@ that setting actually dropped. See [Statistics](#statistics).
 | `filter advert clear` | Forget every remembered advert origin |
 | `filter path list` | Blocked path prefixes |
 | `filter path add <hex>` / `filter path remove <hex>` | Block or unblock a path prefix |
+| `filter sender list` | Sender rules, in evaluation order |
+| `filter sender add <name> [secs] [prob]` | Block, throttle or dose a sender (see [Sender and text rules](#sender-and-text-rules)) |
+| `filter sender remove <name>` | Remove a sender rule |
+| `filter text list` / `filter text add <pattern> [secs] [prob]` / `filter text remove <pattern>` | The same for message text |
+| `filter watch list` | Channels the rules can read (Public plus the watch list) |
+| `filter watch add <#name>` / `filter watch remove <#name>` | Add or remove a channel the rules read |
 | `filter stats <topic>` | Drops for one topic, in detail |
 
 The same list is available on the device:
 
 ```text
 filter help
-> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path ]
+> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path | sender | text | watch ]
 ```
 
 Commands that change a setting reply `> Filter: OK` unless noted otherwise.
@@ -399,6 +406,79 @@ Drops per prefix are reported by `filter stats path`.
 
 ---
 
+# Sender and Text Rules
+
+Group texts decrypt to `SenderName: message text`. A sender rule matches the
+name, a text rule matches the message, and each rule either **blocks** every
+match, **throttles** it (one match per N seconds slips past, the rest are
+dropped), or **doses** it (the rule decides only a percentage of its matches).
+This is the tool for one bot flooding a channel you would rather keep: slow it
+down instead of muting the channel.
+
+```text
+filter sender add <name> [secs] [prob]
+filter text add <pattern> [secs] [prob]
+```
+
+| Argument | Meaning |
+| -------- | ------- |
+| `name` | Sender name, exact and case-sensitive. End it with `*` for a prefix (`Bot*` matches `Bot1`, `BotXY`); a lone `*` matches every sender. Up to 15 characters. |
+| `pattern` | Text to find anywhere in the message, case-sensitive. Start it with `^` to match only at the beginning. One word, no spaces. Up to 23 characters. |
+| `secs` | `0` (default) blocks. `1`–`65535` throttles: one matching message per that many seconds passes, the excess is dropped. |
+| `prob` | `1`–`100` (default `100`): the share of matches the rule decides. `50` drops half. `0` is rejected: remove the rule instead. |
+
+Examples:
+
+```text
+filter sender add SpamBot            # drop everything SpamBot says
+filter sender add Bob 60             # Bob gets one message a minute; the rest is dropped
+filter sender add Bot* 0 50          # every Bot… name loses half its messages
+filter text add ^BEACON              # drop messages that start with BEACON
+filter text add RX_in_place 600      # at most one such report per 10 minutes
+filter sender remove Bob
+```
+
+How the rules are applied:
+
+* Sender rules are evaluated top to bottom, then text rules, on every group
+  text the repeater can decrypt. **The first rule that decides drops the
+  packet.** A rule that *steps aside* (a failed dosing roll, or a throttle pass
+  within budget) leaves the decision to the next rule, so a throttled sender
+  can still be caught by a later catch-all.
+* A throttle window is not extended by over-rate messages: a sender pushing
+  hard still gets exactly one pass per window. Throttle state lives in RAM, so
+  the first match after a reboot is a free pass.
+* Dosing rolls per received packet with the same random source as the soft
+  cutoff; a retransmitted copy rolls again.
+* Only **plain** group texts carry a `Sender: text` shape. Binary group data,
+  adverts and everything else never match a sender or text rule.
+* Up to **8 sender rules** and **8 text rules**. Adding a rule that already
+  exists, or beyond the limit, fails.
+
+## Which channels the rules can read
+
+The rules only see traffic the repeater can decrypt. **Public** is always
+readable. For a `#name` channel the key is derived from the name, exactly as
+the companion apps do, so add it to the watch list and it becomes readable too:
+
+```text
+filter watch add #bots
+> Filter: watch #bots added
+filter watch list
+Public (11),#bots (a3)
+```
+
+Up to **4** watched channels. Private channels with a shared key cannot be
+watched. A watched channel is *read*, not blocked; to block one use
+`filter channel add`. A message on a watched channel is only decrypted when
+at least one sender or text rule exists, so the watch list costs nothing
+until you use it.
+
+Drops per rule are reported by `filter stats sender` and `filter stats text`;
+throttle passes are shown alongside.
+
+---
+
 # Channel Blocking
 
 List blocked channels, with the channel hash byte the filter matches on:
@@ -568,7 +648,7 @@ detail that would not fit on the summary line.
 
 ```text
 filter stats
-> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air ]
+> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air | sender | text ]
 ```
 
 An unknown topic returns that same list.
@@ -587,6 +667,7 @@ printing an empty table:
 | `filter stats advert` | `> Filter: advert origin limit off`, when the window is 0 |
 | `filter stats path` | `None`, when no prefixes are blocked |
 | `filter stats air` | `> Filter: no airtime saved yet` |
+| `filter stats sender` / `filter stats text` | `None`, when no rule is set |
 
 The counters live in RAM, so this is also what you see after a reboot or a
 `clear stats`.
@@ -677,6 +758,19 @@ A1B2: 412,C3: 0
 
 Drops per blocked prefix, so you can tell which entry is doing the work.
 
+### sender and text
+
+```text
+filter sender list
+Bob throttle 60s,Bot* block 50%,SpamBot block
+
+filter stats sender
+Bob: 12 (pass 3),Bot*: 40,SpamBot: 5
+```
+
+The setting view shows each rule's mode; the stats view shows the drops it
+caused and, for a throttle, how many messages it let pass within budget.
+
 ### air
 
 ```text
@@ -718,6 +812,7 @@ The following settings persist across reboots:
 * Dry-run
 * Advert window (hours)
 * Blocked path prefixes
+* Sender rules, text rules and the watch list
 
 Files written by older firmware are shorter; the settings they do not contain
 load at their defaults. The advert origin cache is not persisted.
@@ -778,6 +873,18 @@ channel, so you can tell which entry is doing the work. Take into account that t
 
 ---
 
+## Slowing One Sender Down Instead of Muting Them
+
+```text
+filter watch add #test
+filter sender add Bob 60
+filter stats sender          # Bob: <drops> (pass <passes>)
+```
+
+Bob still gets one message a minute through this repeater. Like every sender
+rule this matches the *name in the message*, not a verified identity: a
+renamed sender evades it.
+
 ## Isolating One Upstream Repeater
 
 ```text
@@ -811,6 +918,7 @@ Nothing is dropped while dry-run is on; the counters show what *would* be.
 * Malformed message validation only applies to `GRP_TXT` packets.
 * Rate limits are applied per packet type, not per sender. The advert window is the exception: it is per origin.
 * Path prefixes are matched against whole path entries; a prefix longer than the packet's hash size never matches.
+* Sender and text rules read only Public and watched `#` channels, only plain group texts, and match names as text, not verified identities.
 * Statistics live in RAM only. They are cleared on reboot and by `clear stats`, and they are never written to `/filter_prefs`.
 * Counters saturate at their maximum rather than wrapping around to zero.
 * A reply that does not fit the 160-byte CLI buffer ends in `..`.
@@ -828,10 +936,12 @@ Nothing is dropped while dry-run is on; the counters show what *would* be.
 | `> Filter: error hash bytes range is 1-3` | Minimum path hash size outside `1`–`3` |
 | `> Filter: error <hours> range is 0-720` | Advert window outside `0`–`720` |
 | `> Filter: error path prefix is 2-8 hex digits` | Path prefix empty, odd-length, longer than 4 bytes, or not hex |
+| `> Filter: error <secs> range is 0-65535, <prob> range is 1-100` | Sender/text rule argument out of range or not a number |
+| `> Filter: error <pattern> max 15 chars` / `max 23 chars` | Sender name or text pattern too long |
 | `> Filter: syntax error 'filter dryrun <on \| off>'` | Wrong argument |
 | `> Filter: syntax error 'filter hops <type> <max_hops>'` | Wrong number of arguments |
 | `> Filter: syntax error 'filter rate <type> <limit> <secs>'` | Wrong number of arguments |
 | `> Filter: syntax error 'filter channel [list \| add \| remove] <#name \| Public>'` | Wrong number of arguments |
-| `Failed` | `filter channel add` with the list full, or `remove` with no such channel; `filter path add` with the list full or the prefix already blocked, or `remove` with no such prefix |
+| `Failed` | `filter channel add` with the list full, or `remove` with no such channel; `filter path add` with the list full or the prefix already blocked, or `remove` with no such prefix; the same for `filter sender`, `filter text` and `filter watch` (`watch add Public` also fails: it is always watched) |
 
 An unknown `filter stats` topic is not an error: it returns the list of topics.

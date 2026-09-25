@@ -27,7 +27,11 @@ packets bypass it. State is persisted to `/filter_prefs`.
   `0` = off) / `filter advert clear`
 - `filter path list|add|remove <hex>` (up to 8 prefixes of 2-8 hex digits; drops everything
   that came through a repeater whose ID starts with it)
-- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top|advert|path|air`
+- `filter sender add <name> [secs] [prob]` / `remove` / `list` (up to 8; exact name, `Bot*` = prefix;
+  `secs` 0 = block, else pass one message per `secs`; `prob` 1-100 = share of matches the rule decides)
+- `filter text add <pattern> [secs] [prob]` / `remove` / `list` (up to 8; substring, `^` = start of message)
+- `filter watch add|remove|list <#name>` (up to 4 channels the rules may read, besides Public)
+- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text`
   (`air` = estimated airtime saved)
 
 ### Packet types

@@ -245,6 +245,7 @@ filter
 - `filter stats advert` — drops by the per-origin advert window
 - `filter stats path` — drops per blocked path prefix
 - `filter stats air` — estimated time-on-air the drops saved (in dry-run: would have saved)
+- `filter stats sender` / `filter stats text` — drops (and throttle passes) per sender/text rule
 
 **Example:**
 ```text
