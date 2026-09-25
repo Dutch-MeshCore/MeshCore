@@ -11,6 +11,7 @@
 #include <Packet.h>
 
 #include "PathBlock.h"
+#include "SenderRules.h"
 
 #define FILTER_CHANNEL_COUNT 16
 
@@ -59,6 +60,13 @@ struct Counters {
   uint32_t path = 0;                                     // drops by the path-prefix block list
   uint32_t path_slot[FILTER_PATH_COUNT] = {};            // drops per blocked prefix
   uint32_t air_ms = 0;                                   // estimated TX airtime not spent relaying drops
+
+  uint32_t sender = 0;                                   // drops by sender rules
+  uint32_t text = 0;                                     // drops by text rules
+  uint32_t sender_slot[FILTER_RULE_COUNT] = {};          // drops per sender rule
+  uint32_t text_slot[FILTER_RULE_COUNT] = {};            // drops per text rule
+  uint32_t sender_pass[FILTER_RULE_COUNT] = {};          // within-budget throttle passes per sender rule
+  uint32_t text_pass[FILTER_RULE_COUNT] = {};            // within-budget throttle passes per text rule
 
   void reset() { *this = Counters(); }
 };
@@ -113,6 +121,16 @@ namespace FilterStat {
   inline void recordPath(Counters& c, int slot) {
     bump(c.path);
     if (slot >= 0 && slot < FILTER_PATH_COUNT) bump(c.path_slot[slot]);
+  }
+
+  inline void recordSender(Counters& c, int slot) {
+    bump(c.sender);
+    if (slot >= 0 && slot < FILTER_RULE_COUNT) bump(c.sender_slot[slot]);
+  }
+
+  inline void recordText(Counters& c, int slot) {
+    bump(c.text);
+    if (slot >= 0 && slot < FILTER_RULE_COUNT) bump(c.text_slot[slot]);
   }
 
   inline void recordAir(Counters& c, uint32_t est_ms) {
@@ -431,6 +449,39 @@ namespace FilterStat {
       b.add("%lum %lus)", m, sec);
     } else {
       b.add("%lus)", sec);
+    }
+    b.markTruncated("..");
+  }
+
+  // `filter sender|text list` (drops == nullptr: pattern + mode) and
+  // `filter stats sender|text` (drops per rule, with throttle passes when any).
+  template <typename Rule>
+  inline void formatRuleList(char* out, size_t cap, const Rule* rules, int count,
+                             const uint32_t* drops, const uint32_t* passes) {
+    Buf b(out, cap);
+    int listed = 0;
+
+    for (int i = 0; i < count; i++) {
+      const char* pat = FilterRules::patternOf(rules[i]);
+      if (pat[0] == '\0') continue;
+      if (listed > 0) b.add(",");
+      if (drops != nullptr) {
+        b.add("%s: %lu", pat, (unsigned long)drops[i]);
+        if (passes != nullptr && passes[i] > 0) b.add(" (pass %lu)", (unsigned long)passes[i]);
+      } else {
+        if (rules[i].secs > 0) {
+          b.add("%s throttle %us", pat, (unsigned)rules[i].secs);
+        } else {
+          b.add("%s block", pat);
+        }
+        if (rules[i].prob < 100) b.add(" %u%%", (unsigned)rules[i].prob);
+      }
+      listed++;
+    }
+
+    if (listed == 0) {
+      b.add("None");
+      return;
     }
     b.markTruncated("..");
   }

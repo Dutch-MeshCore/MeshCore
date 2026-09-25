@@ -4,15 +4,23 @@
 // close to the limit, so guard it at compile time rather than let a future
 // subcommand overflow it silently.
 static const char FILTER_HELP[] =
-    "> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path ]";
+    "> filter [ help | on | off | reset | dryrun | types | count | stats | hops | rate | channel | hash | malformed | advert | path | sender | text | watch ]";
 static const char FILTER_STATS_HELP[] =
-    "> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air ]";
+    "> filter stats [ hops | rate | channel | hash | malformed | top | advert | path | air | sender | text ]";
 static const char FILTER_PATH_HELP[] =
     "> filter path [ list | add | remove ] <hex prefix, 2-8 digits>";
+static const char FILTER_RULE_HELP[] =
+    "> filter sender|text [ list | add <pattern> [secs] [prob] | remove <pattern> ]";
+static const char FILTER_WATCH_HELP[] =
+    "> filter watch [ list | add | remove ] <#name>";
+static const char FILTER_RULE_ARGS_ERR[] =
+    "> Filter: error <secs> range is 0-65535, <prob> range is 1-100";
 
 static_assert(sizeof(FILTER_HELP) <= FILTER_REPLY_SIZE, "filter help text no longer fits the reply buffer");
 static_assert(sizeof(FILTER_STATS_HELP) <= FILTER_REPLY_SIZE, "filter stats help text no longer fits the reply buffer");
 static_assert(sizeof(FILTER_PATH_HELP) <= FILTER_REPLY_SIZE, "filter path help text no longer fits the reply buffer");
+static_assert(sizeof(FILTER_RULE_HELP) <= FILTER_REPLY_SIZE, "filter rule help text no longer fits the reply buffer");
+static_assert(sizeof(FILTER_WATCH_HELP) <= FILTER_REPLY_SIZE, "filter watch help text no longer fits the reply buffer");
 
 bool Filter::drop(const mesh::Packet* packet) {
   // The airtime this drop saves is what the repeater would have billed for
@@ -98,15 +106,43 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
       }
     }
 
-    // malformed
-    if (_prefs.filter_malformed) {
-      if (channel_hash == PUBLIC_CHANNEL_HASH) {
-        uint8_t data[MAX_PACKET_PAYLOAD + 1];
-        int len = mesh::Utils::MACThenDecrypt(PUBLIC_CHANNEL_SECRET, data, &packet->payload[PATH_HASH_SIZE], packet->payload_len - PATH_HASH_SIZE);
+    // Content checks need the plaintext: the malformed scan (Public only) and
+    // the sender/text rules (Public plus the watch list). Decrypt once.
+    bool want_malformed = _prefs.filter_malformed && channel_hash == PUBLIC_CHANNEL_HASH;
+    const uint8_t* secret = hasContentRules() ? watchedSecret(channel_hash) : nullptr;
+    if (want_malformed || secret != nullptr) {
+      uint8_t data[MAX_PACKET_PAYLOAD + 1];
+      int len = mesh::Utils::MACThenDecrypt(secret != nullptr ? secret : PUBLIC_CHANNEL_SECRET, data,
+                                            &packet->payload[PATH_HASH_SIZE], packet->payload_len - PATH_HASH_SIZE);
+
+      // malformed
+      if (want_malformed) {
         uint8_t reason;
         if (!validMessageContent(data, len, &reason)) {
           FilterStat::recordMalformed(_cnt, reason);
           return drop(packet);
+        }
+      }
+
+      // sender / text rules; len == 0 means the MAC failed (hash collision with
+      // a channel we do not hold the key for), so there is nothing to match
+      if (secret != nullptr && len > 0) {
+        FilterRules::GroupText gt;
+        if (FilterRules::parseGroupText(data, len, &gt)) {
+          uint32_t now = millis();
+          uint8_t roll = nextRandom() % 100;
+          int slot = FilterRules::evaluate(_prefs.sender_rules, FILTER_RULE_COUNT, now, roll, _sender_last, _cnt.sender_pass,
+                                           [&](const SenderRule& r) { return FilterRules::matchName(r.name, gt.sender, gt.sender_len); });
+          if (slot >= 0) {
+            FilterStat::recordSender(_cnt, slot);
+            return drop(packet);
+          }
+          slot = FilterRules::evaluate(_prefs.text_rules, FILTER_RULE_COUNT, now, roll, _text_last, _cnt.text_pass,
+                                       [&](const TextRule& r) { return FilterRules::matchText(r.text, gt.text, gt.text_len); });
+          if (slot >= 0) {
+            FilterStat::recordText(_cnt, slot);
+            return drop(packet);
+          }
         }
       }
     }
@@ -207,6 +243,10 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
               _advert.getCount(), _advert.getCapacity());
     } else if (strcmp(parts[1], "path") == 0) {
       strcpy(reply, FILTER_PATH_HELP);
+    } else if (strcmp(parts[1], "sender") == 0 || strcmp(parts[1], "text") == 0) {
+      strcpy(reply, FILTER_RULE_HELP);
+    } else if (strcmp(parts[1], "watch") == 0) {
+      strcpy(reply, FILTER_WATCH_HELP);
     } else {
       strcpy(reply, "> Filter: command error");
     }
@@ -235,6 +275,10 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
         FilterStat::formatPathList(reply, FILTER_REPLY_SIZE, _prefs.path_block, &_cnt);
       } else if (strcmp(parts[2], "air") == 0) {
         FilterStat::formatStatsAir(reply, FILTER_REPLY_SIZE, _cnt);
+      } else if (strcmp(parts[2], "sender") == 0) {
+        FilterStat::formatRuleList(reply, FILTER_REPLY_SIZE, _prefs.sender_rules, FILTER_RULE_COUNT, _cnt.sender_slot, _cnt.sender_pass);
+      } else if (strcmp(parts[2], "text") == 0) {
+        FilterStat::formatRuleList(reply, FILTER_REPLY_SIZE, _prefs.text_rules, FILTER_RULE_COUNT, _cnt.text_slot, _cnt.text_pass);
       } else {
         strcpy(reply, FILTER_STATS_HELP);
       }
@@ -387,10 +431,200 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
       } else {
         strcpy(reply, FILTER_PATH_HELP);
       }
+
+    // sender / text rules: list | add <pattern> [secs] [prob] | remove <pattern>
+    } else if (strcmp(parts[1], "sender") == 0 || strcmp(parts[1], "text") == 0) {
+      bool is_sender = strcmp(parts[1], "sender") == 0;
+      if (strcmp(parts[2], "list") == 0) {
+        if (is_sender) {
+          FilterStat::formatRuleList(reply, FILTER_REPLY_SIZE, _prefs.sender_rules, FILTER_RULE_COUNT, nullptr, nullptr);
+        } else {
+          FilterStat::formatRuleList(reply, FILTER_REPLY_SIZE, _prefs.text_rules, FILTER_RULE_COUNT, nullptr, nullptr);
+        }
+      } else if (n >= 4 && strcmp(parts[2], "add") == 0) {
+        uint16_t secs;
+        uint8_t prob;
+        size_t max_len = is_sender ? FILTER_SENDER_LEN - 1 : FILTER_TEXT_LEN - 1;
+        if (strlen(parts[3]) > max_len) {
+          sprintf(reply, "> Filter: error <pattern> max %u chars", (unsigned)max_len);
+        } else if (!FilterRules::parseArgs(n >= 5 ? parts[4] : nullptr, n >= 6 ? parts[5] : nullptr, &secs, &prob)) {
+          strcpy(reply, FILTER_RULE_ARGS_ERR);
+        } else if (is_sender ? addSenderRule(parts[3], secs, prob) : addTextRule(parts[3], secs, prob)) {
+          sprintf(reply, "> Filter: %s %s added", parts[1], parts[3]);
+          save(fs);
+        } else {
+          strcpy(reply, "Failed");
+        }
+      } else if (n >= 4 && strcmp(parts[2], "remove") == 0) {
+        if (is_sender ? removeSenderRule(parts[3]) : removeTextRule(parts[3])) {
+          sprintf(reply, "> Filter: %s %s removed", parts[1], parts[3]);
+          save(fs);
+        } else {
+          strcpy(reply, "Failed");
+        }
+      } else {
+        strcpy(reply, FILTER_RULE_HELP);
+      }
+
+    // watch list: channels decrypted for the sender/text rules
+    } else if (strcmp(parts[1], "watch") == 0) {
+      if (strcmp(parts[2], "list") == 0) {
+        listWatchNames(reply, FILTER_REPLY_SIZE);
+      } else if (n >= 4 && strcmp(parts[2], "add") == 0) {
+        if (addWatch(parts[3])) {
+          sprintf(reply, "> Filter: watch %s added", parts[3]);
+          save(fs);
+        } else {
+          strcpy(reply, "Failed");
+        }
+      } else if (n >= 4 && strcmp(parts[2], "remove") == 0) {
+        if (removeWatch(parts[3])) {
+          sprintf(reply, "> Filter: watch %s removed", parts[3]);
+          save(fs);
+        } else {
+          strcpy(reply, "Failed");
+        }
+      } else {
+        strcpy(reply, FILTER_WATCH_HELP);
+      }
     } else {
       strcpy(reply, "> Filter: command error");
     }
   }
+}
+
+// ---- sender / text rules -------------------------------------------------------
+
+template <typename Rule>
+static bool addRule(Rule* rules, char* (*field)(Rule&), const char* pattern, size_t max_len, uint16_t secs, uint8_t prob) {
+  if (pattern == nullptr || pattern[0] == '\0' || strlen(pattern) > max_len) return false;
+
+  int free_slot = -1;
+  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
+    char* pat = field(rules[i]);
+    if (pat[0] == '\0') {
+      if (free_slot < 0) free_slot = i;
+    } else if (strcmp(pat, pattern) == 0) {
+      return false;   // already present
+    }
+  }
+  if (free_slot < 0) return false;
+
+  Rule& r = rules[free_slot];
+  memset(&r, 0, sizeof(r));
+  strncpy(field(r), pattern, max_len);
+  r.secs = secs;
+  r.prob = prob;
+  return true;
+}
+
+template <typename Rule>
+static int findRule(Rule* rules, char* (*field)(Rule&), const char* pattern) {
+  if (pattern == nullptr || pattern[0] == '\0') return -1;
+  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
+    if (strcmp(field(rules[i]), pattern) == 0) return i;
+  }
+  return -1;
+}
+
+static char* senderField(SenderRule& r) { return r.name; }
+static char* textField(TextRule& r) { return r.text; }
+
+bool Filter::addSenderRule(const char* name, uint16_t secs, uint8_t prob) {
+  return addRule(_prefs.sender_rules, senderField, name, FILTER_SENDER_LEN - 1, secs, prob);
+}
+
+bool Filter::removeSenderRule(const char* name) {
+  int i = findRule(_prefs.sender_rules, senderField, name);
+  if (i < 0) return false;
+  memset(&_prefs.sender_rules[i], 0, sizeof(SenderRule));
+  _sender_last[i] = 0;
+  return true;
+}
+
+bool Filter::addTextRule(const char* text, uint16_t secs, uint8_t prob) {
+  return addRule(_prefs.text_rules, textField, text, FILTER_TEXT_LEN - 1, secs, prob);
+}
+
+bool Filter::removeTextRule(const char* text) {
+  int i = findRule(_prefs.text_rules, textField, text);
+  if (i < 0) return false;
+  memset(&_prefs.text_rules[i], 0, sizeof(TextRule));
+  _text_last[i] = 0;
+  return true;
+}
+
+bool Filter::hasContentRules(void) const {
+  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
+    if (_prefs.sender_rules[i].name[0] != '\0') return true;
+    if (_prefs.text_rules[i].text[0] != '\0') return true;
+  }
+  return false;
+}
+
+// The key to decrypt a group text with, when the rules may read it: Public is
+// always readable, plus every channel on the watch list. nullptr otherwise.
+const uint8_t* Filter::watchedSecret(uint8_t channel_hash) const {
+  if (channel_hash == PUBLIC_CHANNEL_HASH) return PUBLIC_CHANNEL_SECRET;
+  for (int i = 0; i < FILTER_WATCH_COUNT; i++) {
+    const ChannelDetails& ch = _prefs.watch_channels[i];
+    if (ch.name[0] == '\0') continue;
+    if (ch.channel.hash[0] == channel_hash) return ch.channel.secret;
+  }
+  return nullptr;
+}
+
+bool Filter::addWatch(const char* name) {
+  if (name == nullptr || name[0] == '\0' || strlen(name) >= sizeof(ChannelDetails::name)) return false;
+  if (strcmp(name, "Public") == 0) return false;   // always watched
+
+  int free_slot = -1;
+  for (int i = 0; i < FILTER_WATCH_COUNT; i++) {
+    ChannelDetails& ch = _prefs.watch_channels[i];
+    if (ch.name[0] == '\0') {
+      if (free_slot < 0) free_slot = i;
+    } else if (strcmp(ch.name, name) == 0) {
+      return false;
+    }
+  }
+  if (free_slot < 0) return false;
+
+  ChannelDetails& ch = _prefs.watch_channels[free_slot];
+  strncpy(ch.name, name, sizeof(ch.name) - 1);
+  ch.name[sizeof(ch.name) - 1] = '\0';
+  getChannelHash(name, &ch.channel);
+  return true;
+}
+
+bool Filter::removeWatch(const char* name) {
+  if (name == nullptr || name[0] == '\0') return false;
+  for (int i = 0; i < FILTER_WATCH_COUNT; i++) {
+    ChannelDetails& ch = _prefs.watch_channels[i];
+    if (strcmp(ch.name, name) == 0) {
+      ch.name[0] = '\0';
+      return true;
+    }
+  }
+  return false;
+}
+
+void Filter::listWatchNames(char* out_buf, size_t out_size) {
+  if (out_buf == nullptr || out_size == 0) return;
+
+  FilterStat::Buf b(out_buf, out_size);
+  char channel_hex[4];
+  int listed = 0;
+
+  b.add("Public (11)");
+  listed++;
+  for (int i = 0; i < FILTER_WATCH_COUNT; i++) {
+    const ChannelDetails& ch = _prefs.watch_channels[i];
+    if (ch.name[0] == '\0') continue;
+    mesh::Utils::toHex(channel_hex, ch.channel.hash, 1);
+    b.add(",%s (%s)", ch.name, channel_hex);
+    listed++;
+  }
+  b.markTruncated("..");
 }
 
 void Filter::formatResponse(char *reply, ResponseType rtype) {
@@ -634,6 +868,15 @@ bool Filter::load(FILESYSTEM* fs) {
   if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, path_block), sizeof(_prefs.path_block))) {
     memset(_prefs.path_block, 0, sizeof(_prefs.path_block));
   }
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, sender_rules), sizeof(_prefs.sender_rules))) {
+    memset(_prefs.sender_rules, 0, sizeof(_prefs.sender_rules));
+  }
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, text_rules), sizeof(_prefs.text_rules))) {
+    memset(_prefs.text_rules, 0, sizeof(_prefs.text_rules));
+  }
+  if (!FilterStat::fieldLoaded(got, offsetof(FilterPrefs, watch_channels), sizeof(_prefs.watch_channels))) {
+    for (int i = 0; i < FILTER_WATCH_COUNT; i++) _prefs.watch_channels[i] = ChannelDetails();
+  }
 
   _prefs.filter_enabled = constrain(_prefs.filter_enabled, 0, 1);
 
@@ -650,6 +893,19 @@ bool Filter::load(FILESYSTEM* fs) {
   _advert.setWindowHours(_prefs.advert_hours);
   for (int i = 0; i < FILTER_PATH_COUNT; i++) {
     if (_prefs.path_block[i].len > FILTER_PATH_MAX_LEN) memset(&_prefs.path_block[i], 0, sizeof(PathPrefix));
+  }
+  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
+    SenderRule& sr = _prefs.sender_rules[i];
+    sr.name[FILTER_SENDER_LEN - 1] = '\0';
+    if (sr.prob == 0 || sr.prob > 100) sr.prob = 100;
+    TextRule& tr = _prefs.text_rules[i];
+    tr.text[FILTER_TEXT_LEN - 1] = '\0';
+    if (tr.prob == 0 || tr.prob > 100) tr.prob = 100;
+  }
+  for (int i = 0; i < FILTER_WATCH_COUNT; i++) {
+    ChannelDetails& ch = _prefs.watch_channels[i];
+    ch.name[sizeof(ch.name) - 1] = '\0';
+    if (ch.name[0] != '\0') getChannelHash(ch.name, &ch.channel);   // never trust a stored key
   }
 
   file.close();

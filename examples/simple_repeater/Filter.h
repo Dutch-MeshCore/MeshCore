@@ -10,6 +10,7 @@
 #include "FilterStats.h"
 #include "Limiter.h"
 #include "PathBlock.h"
+#include "SenderRules.h"
 
 #define FILTER_PREFS_FILE    "/filter_prefs"
 
@@ -62,6 +63,9 @@ struct FilterPrefs {
   uint16_t advert_hours = 0;                       // per-origin advert window, 0 = off
   uint8_t dryrun = false;                          // count drops but still forward
   PathPrefix path_block[FILTER_PATH_COUNT] = {};   // blocked path-ID prefixes
+  SenderRule sender_rules[FILTER_RULE_COUNT] = {};  // group-text sender rules (ordered)
+  TextRule text_rules[FILTER_RULE_COUNT] = {};      // group-text text rules (ordered)
+  ChannelDetails watch_channels[FILTER_WATCH_COUNT]; // channels decrypted for the rules, besides Public
 };
 
 class Filter {
@@ -70,6 +74,8 @@ class Filter {
   FilterPrefs _prefs;
   Limiter _limiters[PAYLOAD_TYPE_COUNT];
   AdvertLimiter _advert;
+  uint32_t _sender_last[FILTER_RULE_COUNT];   // throttle state per sender rule (millis, 0 = never)
+  uint32_t _text_last[FILTER_RULE_COUNT];     // throttle state per text rule
   mesh::Radio *_radio;   // optional: airtime estimate for the saved-airtime stat
   Counters _cnt;
   uint32_t _rng_state;
@@ -95,12 +101,17 @@ public:
       RATE
   };
 
-  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc), _radio(nullptr), _rng_state(0xA5A5F00D) {}
+  Filter(ClientACL &acl, mesh::RTCClock &rtc) : _acl(&acl), _rtc(&rtc), _radio(nullptr), _rng_state(0xA5A5F00D) {
+    memset(_sender_last, 0, sizeof(_sender_last));
+    memset(_text_last, 0, sizeof(_text_last));
+  }
   void setRadio(mesh::Radio *radio) { _radio = radio; }
   void resetPrefs(void) {
     _prefs = FilterPrefs();
     _advert.setWindowHours(0);
     _advert.clear();
+    memset(_sender_last, 0, sizeof(_sender_last));
+    memset(_text_last, 0, sizeof(_text_last));
   }
   void resetStats(void) { _cnt.reset(); }
   // Read-only access for the MQTT filter-stats publisher.
@@ -120,6 +131,15 @@ public:
   void listChannelNames(char *out_buf, size_t out_size, bool with_counts = false);
   bool addPath(const char *hex, char *formatted);
   bool removePath(const char *hex, char *formatted);
+  bool addSenderRule(const char *name, uint16_t secs, uint8_t prob);
+  bool removeSenderRule(const char *name);
+  bool addTextRule(const char *text, uint16_t secs, uint8_t prob);
+  bool removeTextRule(const char *text);
+  bool addWatch(const char *name);
+  bool removeWatch(const char *name);
+  void listWatchNames(char *out_buf, size_t out_size);
+  bool hasContentRules(void) const;
+  const uint8_t *watchedSecret(uint8_t channel_hash) const;
   bool validMessageContent(const uint8_t *data, uint8_t len, uint8_t *reason);
   static bool isValidUTF8(const uint8_t *data, uint8_t len);
   bool load(FILESYSTEM *fs);
