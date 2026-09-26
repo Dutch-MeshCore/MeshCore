@@ -1537,32 +1537,7 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
   const char* config = &command[4];
   // Observer/MQTT/WiFi/timezone/alert/SNMP commands live in CommonCLI_Observer.cpp.
   if (handleObserverSetCmd(sender_timestamp, config, reply)) return;
-  // DMC region gating (hierarchical TX duty-cycle gate). Not upstream: the
-  // upstream radio CLI handlers moved to CommonRadioPrefs in 41588d80, but
-  // dc_gate_* lives in NodePrefs and stays here. Longest prefix first.
-  if (memcmp(config, "dc.gate.thresh ", 15) == 0) {
-    int t = atoi(&config[15]);
-    if (t < 1 || t > 100) {
-      strcpy(reply, "ERROR: dc.gate.thresh must be 1-100");
-    } else {
-      _prefs->dc_gate_threshold = t;
-      savePrefs();
-      strcpy(reply, "OK");
-    }
-  } else if (memcmp(config, "dc.gate.hyst ", 13) == 0) {
-    int h = atoi(&config[13]);
-    if (h < 0 || h > 50) {
-      strcpy(reply, "ERROR: dc.gate.hyst must be 0-50");
-    } else {
-      _prefs->dc_gate_hysteresis = h;
-      savePrefs();
-      strcpy(reply, "OK");
-    }
-  } else if (memcmp(config, "dc.gate ", 8) == 0) {
-    _prefs->dc_gate_enabled = (atoi(&config[8]) != 0) ? 1 : 0;
-    savePrefs();
-    strcpy(reply, "OK");
-  } else if (memcmp(config, "allow.read.only ", 16) == 0) {
+  if (memcmp(config, "allow.read.only ", 16) == 0) {
     _prefs->allow_read_only = memcmp(&config[16], "on", 2) == 0;
     savePrefs();
     strcpy(reply, "OK");
@@ -1834,14 +1809,7 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
   const char* config = &command[4];
   // Observer/MQTT/WiFi/timezone/alert/SNMP commands live in CommonCLI_Observer.cpp.
   if (handleObserverGetCmd(sender_timestamp, config, reply)) return;
-  // DMC region gating readbacks (see the set path above). Longest prefix first.
-  if (memcmp(config, "dc.gate.thresh", 14) == 0) {
-    sprintf(reply, "> %d", (uint32_t) _prefs->dc_gate_threshold);
-  } else if (memcmp(config, "dc.gate.hyst", 12) == 0) {
-    sprintf(reply, "> %d", (uint32_t) _prefs->dc_gate_hysteresis);
-  } else if (memcmp(config, "dc.gate", 7) == 0) {
-    sprintf(reply, "> %s", _prefs->dc_gate_enabled ? "on" : "off");
-  } else if (memcmp(config, "allow.read.only", 15) == 0) {
+  if (memcmp(config, "allow.read.only", 15) == 0) {
     sprintf(reply, "> %s", _prefs->allow_read_only ? "on" : "off");
   } else if (memcmp(config, "dc.gate.thresh", 14) == 0) {
     sprintf(reply, "> %d", (uint32_t) _prefs->dc_gate_threshold);
