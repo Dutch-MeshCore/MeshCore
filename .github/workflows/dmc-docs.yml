@@ -1,0 +1,36 @@
+# DMC docs site deploy.
+# Publishes to the GitHub Pages default URL https://dutch-meshcore.github.io/MeshCore/.
+# Enabling GitHub Pages in the repo settings (Source: GitHub Actions) is a separate
+# manual step that must be done once before the first deploy succeeds.
+name: DMC docs site
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [dmc-dev]
+    paths: ['dmc-docs/**', 'mkdocs.dmc.yml', 'requirements-docs.txt', '.github/workflows/dmc-docs.yml']
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-docs.txt
+      - run: python -m mkdocs build -f mkdocs.dmc.yml --strict
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site-dmc
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

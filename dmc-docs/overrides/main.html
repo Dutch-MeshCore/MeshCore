@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block header %}
+  <div class="dmc-stripe" aria-hidden="true"></div>
+  {{ super() }}
+{% endblock %}
+
+{% block extrahead %}
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Dutch MeshCore Community" />
+  <meta property="og:title" content="{{ page.title }} | DutchMeshCore Firmware" />
+  <meta property="og:description" content="{{ config.site_description }}" />
+  <meta property="og:image" content="https://dutchmeshcore.nl/preview.jpg" />
+  <meta property="og:image:width" content="600" />
+  <meta property="og:image:height" content="600" />
+  <meta property="og:locale" content="nl_NL" />
+  <meta property="og:locale:alternate" content="en_US" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="{{ page.title }} | DutchMeshCore Firmware" />
+  <meta name="twitter:image" content="https://dutchmeshcore.nl/preview.jpg" />
+  <meta name="theme-color" content="#df2020" />
+{% endblock %}

@@ -351,7 +351,7 @@ filter stats hops
 
 **Set by build flag:** `LORA_FREQ`, `LORA_BW`, `LORA_SF`, `LORA_CR`
 
-**Default:** `869.525,250,11,5`
+**Default:** `869.618,62.5,8,5`
 
 **Note:** Requires reboot to apply
 
@@ -396,7 +396,7 @@ filter stats hops
 **Parameters:**
 - `frequency`: Frequency in MHz
 
-**Default:** `869.525`
+**Default:** `869.618`
 
 **Note:** Requires reboot to apply
 **Serial Only:** `set freq <frequency>`
@@ -677,7 +677,7 @@ filter stats hops
 **Parameters:**
 - `value`: Direct transmit delay factor (0-2)
 
-**Default:** `0.2`
+**Default:** `0.3` (Repeater) - `0.2` (Room Server, Sensor)
 
 **Note:** Same collision-avoidance random window as `txdelay`, but applied to direct (non-flood, routed) traffic. The default is lower because direct packets are addressed to a specific next hop, so far fewer nodes compete to retransmit them.
 
@@ -883,7 +883,7 @@ top of an existing filter configuration without disturbing it. Directed
 - `set agc.reset.interval <value>`
 
 **Parameters:**
-- `value`: Interval in seconds rounded down to a multiple of 4 (17 becomes 16). 0 to disable.
+- `value`: Interval in seconds, 0-1020, rounded down to a multiple of 4 (17 becomes 16). 0 to disable.
 
 **Default:** `0.0`
 
@@ -954,7 +954,7 @@ update may simply still be carrying `display.flip 1`. The boot log reports the c
 **Parameters:**
 - `hours`: Interval in hours (3-168)
 
-**Default:** `12` (Repeater) - `0` (Sensor)
+**Default:** `47` (Repeater, Room Server) - `0`, disabled (Sensor)
 
 ---
 
@@ -966,7 +966,12 @@ update may simply still be carrying `display.flip 1`. The boot log reports the c
 **Parameters:**
 - `minutes`: Interval in minutes rounded down to the nearest multiple of 2 (61 becomes 60) (60-240)
 
-**Default:** `0`
+**Default:** `2` on a factory-fresh node, then `0` (disabled) once configured.
+
+**Note:** A new install ships with a 2 minute zero-hop advert interval. Saving
+any setting resets an interval below the 60 minute minimum to `0`, on the
+assumption that the node has now been deliberately configured. To keep zero-hop
+adverts running, set an explicit value in the 60-240 range.
 
 ---
 

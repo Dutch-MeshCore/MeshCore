@@ -1,0 +1,60 @@
+site_name: DutchMeshCore Firmware Docs
+site_description: Documentation for the DutchMeshCore firmware (repeater, observer/MQTT, room server, packetlog, companion).
+site_url: https://dutch-meshcore.github.io/MeshCore/
+repo_url: https://github.com/Dutch-MeshCore/MeshCore
+repo_name: Dutch-MeshCore/MeshCore
+edit_uri: edit/dmc-dev/dmc-docs/
+docs_dir: dmc-docs
+site_dir: site-dmc
+
+theme:
+  name: material
+  custom_dir: dmc-docs/overrides
+  logo: _assets/dmc-logo.jpg
+  favicon: _assets/favicon.jpg
+  font: false
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+  palette:
+    - scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Light mode
+    - scheme: default
+      toggle:
+        icon: material/weather-sunny
+        name: Dark mode
+
+extra_css:
+  - _stylesheets/extra.css
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      languages:
+        - locale: nl
+          default: true
+          name: Nederlands
+          build: true
+        - locale: en
+          name: English
+          build: true
+        - locale: de
+          name: Deutsch
+          build: true
+
+nav:
+  - Home: index.md
+  - Boards: boards.md
+  - Releases: releases.md
+  - Migration: migration.md
+  - Web Panel: web-panel.md
+  - Repeater API: api.md
+  - Local Builds: local-builds.md
+  - Custom CLI: custom-cli.md
