@@ -197,10 +197,22 @@ build_firmware() {
   # v1.17.0-dutchmeshcore.nl-abcdef.
   FORK_TAG="-dutchmeshcore.nl"
 
-  # Embedded version: base + build number (4th component) + fork tag + variant/channel
-  # tag + hash, so the node reports its build and `ota check` can show how many builds
-  # behind it is.
-  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${BUILD_NUMBER_SUFFIX}${FORK_TAG}${VARIANT_TAG}-${COMMIT_HASH}"
+  # DMC release-channel marker (e.g. dev), placed AFTER the version + build number
+  # and BEFORE the fork tag, so the node reports e.g.
+  # v1.17.1-dev-dutchmeshcore.nl-observer-mqtt-abcdef. Empty = the stable/production
+  # channel (unchanged string), so this is safe to leave in place for the stable
+  # observer prebuilts: only a build that sets DMC_CHANNEL gets the marker. Parse-
+  # neutral for OTA for the same reason as the fork tag (it sits in the middle region
+  # ota_parseVersion/ota_extractHash ignore).
+  CHANNEL_MARKER=""
+  if [ -n "${DMC_CHANNEL:-}" ]; then
+    CHANNEL_MARKER="-${DMC_CHANNEL}"
+  fi
+
+  # Embedded version: base + build number (4th component) + channel marker + fork tag
+  # + variant/channel tag + hash, so the node reports its build and `ota check` can
+  # show how many builds behind it is.
+  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${BUILD_NUMBER_SUFFIX}${CHANNEL_MARKER}${FORK_TAG}${VARIANT_TAG}-${COMMIT_HASH}"
 
   # Release channel. The observer pull-OTA fetches its slim per-variant manifest
   # from <OTA_MANIFEST_BASE>/<OTA_VARIANT>.json, so this URL IS the channel: a
@@ -218,7 +230,18 @@ build_firmware() {
   # locally built firmware. Note that PLATFORMIO_BUILD_FLAGS cannot reliably
   # override a -D coming from build_flags (SCons reorders -U/-D), which is why
   # the .ini declarations were removed rather than overridden.
-  OTA_MANIFEST_BASE_URL="${OTA_MANIFEST_BASE_URL:-https://ota.dutchmeshcore.nl/mqtt/v}"
+  #
+  # Channel coupling: a DMC_CHANNEL=dev build pulls (and self-updates) from the
+  # OTA server's dev channel, everything else from stable. The DutchMeshCore-OTA
+  # server serves stable manifests at /mqtt/v and dev manifests at /mqtt/dev/v
+  # (segregated by GitHub release tag), so pointing the base at /mqtt/dev/v is
+  # what keeps a dev prebuilt on the dev channel instead of stable. An explicit
+  # OTA_MANIFEST_BASE_URL from the environment still wins (e.g. a one-off beta).
+  if [ "${DMC_CHANNEL:-}" = "dev" ]; then
+    OTA_MANIFEST_BASE_URL="${OTA_MANIFEST_BASE_URL:-https://ota.dutchmeshcore.nl/mqtt/dev/v}"
+  else
+    OTA_MANIFEST_BASE_URL="${OTA_MANIFEST_BASE_URL:-https://ota.dutchmeshcore.nl/mqtt/v}"
+  fi
 
   # Both named channel bases are baked into EVERY observer build so `ota branch`
   # can re-point a device at either channel at runtime. OTA_MANIFEST_BASE above stays

@@ -227,9 +227,10 @@ Configuration and statistics are kept apart: `filter <setting>` shows and change
 - `filter on`
 - `filter off`
 - `filter reset` — restore the default settings (counters are not affected)
+- `filter dryrun` / `filter dryrun <on|off>` — count drops but keep forwarding, to size a setting before enforcing it
 - `filter types` — list the packet type IDs used by `hops`, `rate` and `count`
 
-**Note:** The filter is disabled by default. Direct-routed packets and packets involving known ACL contacts always bypass it.
+**Note:** The filter is disabled by default. Direct-routed packets and packets involving known ACL contacts always bypass it. While dry-run is on the status line ends in `(dry-run)`.
 
 ---
 
@@ -257,6 +258,11 @@ filter
 - `filter stats channel`
 - `filter stats malformed`
 - `filter stats top`
+- `filter stats advert` — drops by the per-origin advert window
+- `filter stats path` — drops per blocked path prefix
+- `filter stats air` — estimated time-on-air the drops saved (in dry-run: would have saved)
+- `filter stats sender` / `filter stats text` — drops (and throttle passes) per sender/text rule
+- `filter stats age` — group texts dropped by the message age limit (`filter age <minutes>|off`)
 
 **Example:**
 ```text
