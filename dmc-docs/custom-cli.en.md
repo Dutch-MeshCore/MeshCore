@@ -14,6 +14,7 @@ packets bypass it. State is persisted to `/filter_prefs`.
 - `filter help`
 - `filter on` / `filter off`
 - `filter reset`
+- `filter dryrun on|off` (count drops but keep forwarding; the status line ends in `(dry-run)`)
 - `filter types`
 - `filter count`
 - `filter hops <type> <max_hops>` (type `00`-`11`, hops `0`-`64`)
@@ -22,7 +23,18 @@ packets bypass it. State is persisted to `/filter_prefs`.
 - `filter channel list|add|remove <#name|Public>` (up to 16, GRP_TXT only)
 - `filter hash <min_bytes>` (1-3, minimum path-hash size)
 - `filter malformed on|off` (UTF-8 / structure validation of public GRP_TXT)
-- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top`
+- `filter advert <hours>` (0-720; each node's advert forwarded at most once per window,
+  `0` = off) / `filter advert clear`
+- `filter path list|add|remove <hex>` (up to 8 prefixes of 2-8 hex digits; drops everything
+  that came through a repeater whose ID starts with it)
+- `filter sender add <name> [secs] [prob]` / `remove` / `list` (up to 8; exact name, `Bot*` = prefix;
+  `secs` 0 = block, else pass one message per `secs`; `prob` 1-100 = share of matches the rule decides)
+- `filter text add <pattern> [secs] [prob]` / `remove` / `list` (up to 8; substring, `^` = start of message)
+- `filter watch add|remove|list <#name>` (up to 4 channels the rules may read, besides Public)
+- `filter age <minutes>|off` (1-10080; drop group texts on Public and watched channels older than
+  this, by the repeater's clock; inactive while the clock is not set)
+- `filter stats <topic>` where topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text|age`
+  (`air` = estimated airtime saved)
 
 ### Packet types
 

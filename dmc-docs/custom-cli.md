@@ -15,6 +15,7 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
 - `filter help`
 - `filter on` / `filter off`
 - `filter reset`
+- `filter dryrun on|off` (drops tellen maar wél doorsturen; statusregel eindigt op `(dry-run)`)
 - `filter types`
 - `filter count`
 - `filter hops <type> <max_hops>` (type `00`-`11`, hops `0`-`64`)
@@ -23,7 +24,18 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
 - `filter channel list|add|remove <#naam|Public>` (max. 16, alleen GRP_TXT)
 - `filter hash <min_bytes>` (1-3, minimale path-hashgrootte)
 - `filter malformed on|off` (UTF-8-/structuurvalidatie van publieke GRP_TXT)
-- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top`
+- `filter advert <uren>` (0-720; elke node's advert hooguit één keer per venster doorgestuurd,
+  `0` = uit) / `filter advert clear`
+- `filter path list|add|remove <hex>` (max. 8 prefixen van 2-8 hexcijfers; blokkeert alles wat
+  via een repeater met dat ID-prefix kwam)
+- `filter sender add <naam> [secs] [prob]` / `remove` / `list` (max. 8; naam exact, `Bot*` = prefix;
+  `secs` 0 = blokkeren, anders 1 bericht per `secs` doorlaten; `prob` 1-100 = aandeel dat de regel beslist)
+- `filter text add <patroon> [secs] [prob]` / `remove` / `list` (max. 8; substring, `^` = begin van het bericht)
+- `filter watch add|remove|list <#naam>` (max. 4 kanalen die de regels mogen lezen, naast Public)
+- `filter age <minuten>|off` (1-10080; groepsberichten op Public en gevolgde kanalen die ouder zijn
+  dan dit worden gedropt, volgens de klok van de repeater; doet niets zolang de klok niet is gezet)
+- `filter stats <topic>` met topic = `hops|rate|hash|channel|malformed|top|advert|path|air|sender|text|age`
+  (`air` = geschatte bespaarde zendtijd)
 
 ### Pakkettypes
 
