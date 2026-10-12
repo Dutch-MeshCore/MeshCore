@@ -36,6 +36,13 @@ class CustomLR1121 : public LR1121 {
       return len;
     }
     
+#ifdef LR1121_FORCE_HP_PA
+    // boards with only RFO_HP_LF wired: stop RadioLib switching to the LP PA at <= 14 dBm (2.4 GHz still uses the HF PA)
+    int16_t setOutputPower(int8_t power) override {
+      return LR1121::setOutputPower(power, true);
+    }
+#endif
+
     float getFreqMHz() const { return freqMHz; }
 
     int16_t setRxBoostedGainMode(bool en) {
