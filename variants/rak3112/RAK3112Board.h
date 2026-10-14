@@ -6,10 +6,12 @@
 
 // built-ins
 #ifndef PIN_VBAT_READ
-  #define  PIN_VBAT_READ    1
+  #define  PIN_VBAT_READ    1     // WB_A0, VBAT via the WisBlock base board divider
 #endif
 // NOTE: no ADC enable pin on the RAK3112. GPIO33-37 belong to the octal PSRAM and must not be touched.
-#define  ADC_MULTIPLIER   (3 * 1.73 * 1.187 * 1000)
+// WisBlock base boards (RAK19007 etc.) divide VBAT with 1M / 1.5M (nominal x1.667); 1.73 compensates
+// for ADC loading of the high-impedance divider (same empirical value as Meshtastic's RAK4631)
+#define  ADC_MULTIPLIER   1.73f
 #define  BATTERY_SAMPLES 8
 
 class RAK3112Board : public ESP32Board {
@@ -38,13 +40,14 @@ public:
   uint16_t getBattMilliVolts() override {
     analogReadResolution(12);
 
-    uint32_t raw = 0;
+    // analogReadMilliVolts() applies the eFuse ADC calibration
+    uint32_t mv = 0;
     for (int i = 0; i < BATTERY_SAMPLES; i++) {
-      raw += analogRead(PIN_VBAT_READ);
+      mv += analogReadMilliVolts(PIN_VBAT_READ);
     }
-    raw = raw / BATTERY_SAMPLES;
+    mv = mv / BATTERY_SAMPLES;
 
-    return (ADC_MULTIPLIER * raw) / 4096;
+    return (uint16_t)(ADC_MULTIPLIER * mv);
   }
 
   const char* getManufacturerName() const override {
