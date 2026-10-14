@@ -41,6 +41,8 @@ $ sh build.sh build-kiss-radio-firmwares
 Environment Variables:
   DISABLE_DEBUG=1: Disables all debug logging flags (MESH_DEBUG, MESH_PACKET_LOGGING, etc.)
                    If not set, debug flags from variant platformio.ini files are used.
+  DMC_CHANNEL=dev: Stamps a release-channel marker into the embedded version
+                   (v1.17.1-dev-dutchmeshcore.nl-<hash>); the filename is unchanged.
 
 Examples:
 Build without debug logging:
@@ -153,7 +155,17 @@ build_firmware() {
   # so OTA version parsing still works: version = text before the first '-', hash = text
   # after the last '-'. The filename above is deliberately left untagged.
   FORK_TAG="-dutchmeshcore.nl"
-  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${FORK_TAG}-${COMMIT_HASH}"
+
+  # DMC release-channel marker (e.g. dev), placed AFTER the version and BEFORE the
+  # fork tag, so the node reports e.g. v1.17.1-dev-dutchmeshcore.nl-abcdef. Empty =
+  # the stable channel (unchanged string). Same convention as the observer branch;
+  # the filename stays untagged.
+  CHANNEL_MARKER=""
+  if [ -n "${DMC_CHANNEL:-}" ]; then
+    CHANNEL_MARKER="-${DMC_CHANNEL}"
+  fi
+
+  EMBEDDED_VERSION_STRING="${FIRMWARE_VERSION}${CHANNEL_MARKER}${FORK_TAG}-${COMMIT_HASH}"
 
   # add firmware version info to end of existing platformio build flags in environment vars
   export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DFIRMWARE_BUILD_DATE='\"${FIRMWARE_BUILD_DATE}\"' -DFIRMWARE_VERSION='\"${EMBEDDED_VERSION_STRING}\"'"
