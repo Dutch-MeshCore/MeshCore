@@ -8,18 +8,11 @@
 #ifndef PIN_VBAT_READ
   #define  PIN_VBAT_READ    1
 #endif
-#ifndef PIN_ADC_CTRL
-  #define  PIN_ADC_CTRL         36
-#endif
-#define  PIN_ADC_CTRL_ACTIVE    LOW
-#define  PIN_ADC_CTRL_INACTIVE  HIGH
+// NOTE: no ADC enable pin on the RAK3112. GPIO33-37 belong to the octal PSRAM and must not be touched.
 #define  ADC_MULTIPLIER   (3 * 1.73 * 1.187 * 1000)
 #define  BATTERY_SAMPLES 8
 
 class RAK3112Board : public ESP32Board {
-private:
-  bool adc_active_state;
-
 public:
   RefCountedDigitalPin periph_power;
 
@@ -27,13 +20,6 @@ public:
 
   void begin() {
     ESP32Board::begin();
-
-    // Auto-detect correct ADC_CTRL pin polarity (different for boards >3.2)
-    pinMode(PIN_ADC_CTRL, INPUT);
-    adc_active_state = !digitalRead(PIN_ADC_CTRL);
-
-    pinMode(PIN_ADC_CTRL, OUTPUT);
-    digitalWrite(PIN_ADC_CTRL, !adc_active_state); // Initially inactive
 
     periph_power.begin();
 
