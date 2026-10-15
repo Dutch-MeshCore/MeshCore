@@ -16,7 +16,9 @@ name: DMC Firmware Release
 # channel=dev      refreshes the rolling prerelease (dmc-<firmware>-dev; observer-mqtt-dev
 #                  for observer-mqtt) in place: built with DMC_CHANNEL=dev, assets replaced,
 #                  tag never moved, hand-written notes kept except the "**Current build:**"
-#                  line, which is rewritten.
+#                  line, which is rewritten. MQTT dev builds go out as observer-mqtt only
+#                  (the OTA dev channel reads that release); repeater-mqtt and
+#                  room-server-mqtt are release-channel only and are refused on dev.
 # channel=release  creates a DRAFT prerelease dmc-<firmware>-<version> on the built commit.
 #                  Review it on GitHub and publish it by hand. Refuses an existing tag.
 #
@@ -41,7 +43,7 @@ on:
           - room-server-mqtt
           - observer-mqtt
       channel:
-        description: "dev = refresh the rolling prerelease; release = new versioned draft"
+        description: "dev = refresh the rolling prerelease (MQTT: observer-mqtt only); release = new versioned draft"
         type: choice
         required: true
         default: dev
@@ -102,6 +104,14 @@ jobs:
             *) echo "::error::unknown firmware '$FIRMWARE'"; exit 1 ;;
           esac
           if [ -n "$REF_OVERRIDE" ]; then REF="$REF_OVERRIDE"; fi
+
+          # The OTA server serves the MQTT dev channel from observer-mqtt-dev only, and
+          # the publish step prunes every asset that is not in this build, so a per-role
+          # MQTT set can neither feed OTA nor share that release.
+          if [ "$CHANNEL" = dev ] && { [ "$FIRMWARE" = repeater-mqtt ] || [ "$FIRMWARE" = room-server-mqtt ]; }; then
+            echo "::error::'$FIRMWARE' has no dev channel: OTA reads MQTT dev builds from observer-mqtt-dev. Run firmware=observer-mqtt, channel=dev instead."
+            exit 1
+          fi
 
           # Packetlog builds carry the suffix in the version (same as the local builds).
           FW_VERSION="$VERSION"
