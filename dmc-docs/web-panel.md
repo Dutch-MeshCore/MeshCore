@@ -50,6 +50,8 @@ zonder handmatige upload:
 - `ota branch default`: wis de kanaaloverride.
 - `ota update`: download de beschikbare build en flash die.
 
+De node meldt de kanalen als `beta` (= `dev`) en `prod` (= `stable`); `ota branch beta` en `ota branch prod` werken ook.
+
 Deze `ota`-commando's zijn alleen beschikbaar op observer-builds.
 
 ## Opmerkingen
