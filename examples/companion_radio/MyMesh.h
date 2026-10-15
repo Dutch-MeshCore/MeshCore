@@ -23,6 +23,7 @@
 #endif
 
 #include "CompanionFilter.h"
+#include "MeshcomodPrefs.h"
 #include "DataStore.h"
 #include "NodePrefs.h"
 

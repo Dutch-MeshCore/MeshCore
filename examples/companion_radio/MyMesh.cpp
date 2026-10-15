@@ -979,6 +979,7 @@ void MyMesh::begin() {
 #endif
 
   // load persisted prefs
+  importMeshcomodSettings(_prefs, *_store);   // DMC: keep settings when upgrading from meshcomod
   _store->loadPrefs(_prefs);
   loadCompanionFilter(_cfilter, *_store);   // DMC companion filter
   sensors.node_lat = _prefs.node_lat;
