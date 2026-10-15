@@ -1,0 +1,438 @@
+name: DMC Firmware Release
+
+# Manual "Run workflow" button that builds a DMC firmware set on GitHub runners and
+# publishes it as a GitHub Release. It lives on the default branch (the only place
+# GitHub shows dispatch buttons) and checks out the DMC branch itself, so the
+# "Use workflow from" selector does not matter.
+#
+#   firmware            branch               envs                          title
+#   repeater            dmc-dev              *_repeater                    DMC Repeater Firmware
+#   room-server         dmc-dev              *_room_server                 DMC Room Server Firmware
+#   repeater-packetlog  dmc-dev-packetlog    *_repeater                    DMC Repeater PacketLog Firmware
+#   repeater-mqtt       dmc-observer-dev     *_repeater_observer_mqtt      DMC Repeater MQTT Firmware
+#   room-server-mqtt    dmc-observer-dev     *_room_server_observer_mqtt   DMC Room Server MQTT Firmware
+#   observer-mqtt       dmc-observer-dev     *_observer_mqtt               DMC MQTT Observer Firmware
+#
+# channel=dev      refreshes the rolling prerelease (dmc-<firmware>-dev; observer-mqtt-dev
+#                  for observer-mqtt) in place: built with DMC_CHANNEL=dev, assets replaced,
+#                  tag never moved, hand-written notes kept except the "**Current build:**"
+#                  line, which is rewritten.
+# channel=release  creates a DRAFT prerelease dmc-<firmware>-<version> on the built commit.
+#                  Review it on GitHub and publish it by hand. Refuses an existing tag.
+#
+# One runner per board. A board that fails to build is listed in the run summary and
+# left out of the release; the rest still publish.
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware:
+        description: Firmware set to build
+        type: choice
+        required: true
+        options:
+          - repeater
+          - room-server
+          - repeater-packetlog
+          - repeater-mqtt
+          - room-server-mqtt
+          - observer-mqtt
+      channel:
+        description: "dev = refresh the rolling prerelease; release = new versioned draft"
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - release
+      version:
+        description: "Firmware version, e.g. v1.18.0 (no '-')"
+        type: string
+        required: true
+      ref:
+        description: Branch, tag or commit to build instead of the firmware's default branch
+        type: string
+        required: false
+
+concurrency:
+  group: dmc-firmware-release-${{ inputs.firmware }}-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.cfg.outputs.ref }}
+      sha: ${{ steps.envs.outputs.sha }}
+      short: ${{ steps.envs.outputs.short }}
+      matrix: ${{ steps.envs.outputs.matrix }}
+      envs: ${{ steps.envs.outputs.envs }}
+      toolchains: ${{ steps.envs.outputs.toolchains }}
+      tag: ${{ steps.cfg.outputs.tag }}
+      title: ${{ steps.cfg.outputs.title }}
+      fw_version: ${{ steps.cfg.outputs.fw_version }}
+      dmc_channel: ${{ steps.cfg.outputs.dmc_channel }}
+      variant_tag: ${{ steps.cfg.outputs.variant_tag }}
+    steps:
+      - name: Resolve firmware set
+        id: cfg
+        env:
+          FIRMWARE: ${{ inputs.firmware }}
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+          REF_OVERRIDE: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          # OTA and the flasher parse the version as the text before the first '-'.
+          if [[ ! "$VERSION" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error::version '$VERSION' must look like v1.18.0 (no '-')"; exit 1
+          fi
+          VARIANT_TAG=""
+          case "$FIRMWARE" in
+            repeater)           REF=dmc-dev;           PATTERN='_repeater$';                  TITLE='DMC Repeater Firmware' ;;
+            room-server)        REF=dmc-dev;           PATTERN='_room_server$';               TITLE='DMC Room Server Firmware' ;;
+            repeater-packetlog) REF=dmc-dev-packetlog; PATTERN='_repeater$';                  TITLE='DMC Repeater PacketLog Firmware' ;;
+            repeater-mqtt)      REF=dmc-observer-dev;  PATTERN='_repeater_observer_mqtt$';    TITLE='DMC Repeater MQTT Firmware';    VARIANT_TAG='-observer-mqtt' ;;
+            room-server-mqtt)   REF=dmc-observer-dev;  PATTERN='_room_server_observer_mqtt$'; TITLE='DMC Room Server MQTT Firmware'; VARIANT_TAG='-observer-mqtt' ;;
+            observer-mqtt)      REF=dmc-observer-dev;  PATTERN='_observer_mqtt$';             TITLE='DMC MQTT Observer Firmware';    VARIANT_TAG='-observer-mqtt' ;;
+            *) echo "::error::unknown firmware '$FIRMWARE'"; exit 1 ;;
+          esac
+          if [ -n "$REF_OVERRIDE" ]; then REF="$REF_OVERRIDE"; fi
+
+          # Packetlog builds carry the suffix in the version (same as the local builds).
+          FW_VERSION="$VERSION"
+          if [ "$FIRMWARE" = repeater-packetlog ]; then FW_VERSION="${VERSION}-packetlog"; fi
+
+          if [ "$CHANNEL" = dev ]; then
+            DMC_CHANNEL=dev
+            if [ "$FIRMWARE" = observer-mqtt ]; then TAG=observer-mqtt-dev; else TAG="dmc-${FIRMWARE}-dev"; fi
+            TITLE="${TITLE}s (dev)"
+          else
+            DMC_CHANNEL=""
+            TAG="dmc-${FIRMWARE}-${VERSION}"
+            TITLE="${TITLE} ${VERSION}"
+          fi
+          {
+            echo "ref=$REF"; echo "pattern=$PATTERN"; echo "tag=$TAG"; echo "title=$TITLE"
+            echo "fw_version=$FW_VERSION"; echo "dmc_channel=$DMC_CHANNEL"; echo "variant_tag=$VARIANT_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Refuse an existing release tag
+        if: inputs.channel == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.cfg.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Drafts have no git tag yet, so check the release list as well as the tags.
+          hit=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate -q ".[] | select(.tag_name == \"$TAG\") | .html_url")
+          if [ -n "$hit" ] || gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::release or tag '$TAG' already exists ${hit}"; exit 1
+          fi
+
+      - name: Clone Repo
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.cfg.outputs.ref }}
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-platformio
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: List envs
+        id: envs
+        env:
+          PATTERN: ${{ steps.cfg.outputs.pattern }}
+        run: |
+          set -euo pipefail
+          # Same shallow clone + command as build.sh, so the hash matches the filenames.
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          pio project config --json-output > "$RUNNER_TEMP/pio-config.json"
+          python3 - "$RUNNER_TEMP/pio-config.json" <<'PY'
+          import hashlib, json, os, re, sys
+          pattern = re.compile(os.environ["PATTERN"], re.I)
+          rows = []
+          for section, items in json.load(open(sys.argv[1])):
+              if not section.startswith("env:"):
+                  continue
+              env = section[4:]
+              if not pattern.search(env):
+                  continue
+              opts = dict(items)
+              # Toolchain cache key: envs on the same platform + packages share it.
+              ident = json.dumps([opts.get("platform"), opts.get("platform_packages")], sort_keys=True)
+              rows.append({"env": env, "toolchain": hashlib.sha1(ident.encode()).hexdigest()[:12]})
+          rows.sort(key=lambda r: r["env"].lower())
+          if not rows:
+              sys.exit("no envs match " + os.environ["PATTERN"])
+          if len(rows) > 256:
+              sys.exit(f"{len(rows)} envs exceeds the 256-job matrix limit")
+          groups = {}
+          for r in rows:
+              groups.setdefault(r["toolchain"], []).append(r["env"])
+          toolchains = [{"toolchain": k, "envs": " ".join(v)} for k, v in sorted(groups.items())]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("matrix=" + json.dumps(rows, separators=(",", ":")) + "\n")
+              out.write("envs=" + json.dumps([r["env"] for r in rows], separators=(",", ":")) + "\n")
+              out.write("toolchains=" + json.dumps(toolchains, separators=(",", ":")) + "\n")
+          print(f"{len(rows)} envs:")
+          print("\n".join(r["env"] for r in rows))
+          PY
+
+  # One job per platform/packages combination fills the toolchain cache with the
+  # packages of EVERY env on it (an ESP32 and an ESP32-S3 board share the platform
+  # but need different compilers), so the per-board jobs only ever restore it.
+  toolchains:
+    name: toolchain ${{ matrix.toolchain }}
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.toolchains) }}
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Cache PlatformIO toolchains
+        id: cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/.cache
+          key: pio-toolchain-${{ runner.os }}-${{ matrix.toolchain }}-${{ hashFiles('platformio.ini', 'variants/*/platformio.ini') }}
+          restore-keys: |
+            pio-toolchain-${{ runner.os }}-${{ matrix.toolchain }}-
+
+      - name: Install Python
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install toolchains
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          ENVS: ${{ matrix.envs }}
+        run: |
+          set -euo pipefail
+          pip install --upgrade platformio
+          args=()
+          for e in $ENVS; do args+=(-e "$e"); done
+          pio pkg install "${args[@]}"
+
+  build:
+    name: ${{ matrix.env }}
+    needs: [plan, toolchains]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Cache pip
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-platformio
+
+      # Restore only; the toolchains job above owns (and saves) this cache.
+      - name: Restore PlatformIO toolchains
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/.cache
+          key: pio-toolchain-${{ runner.os }}-${{ matrix.toolchain }}-${{ hashFiles('platformio.ini', 'variants/*/platformio.ini') }}
+          restore-keys: |
+            pio-toolchain-${{ runner.os }}-${{ matrix.toolchain }}-
+
+      # Per-env library downloads. Compiled objects are not cached: build.sh injects a
+      # changing FIRMWARE_VERSION/BUILD_DATE that invalidates every object anyway.
+      - name: Cache env libraries
+        uses: actions/cache@v5
+        with:
+          path: .pio/libdeps/${{ matrix.env }}
+          key: pio-libdeps-${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'variants/*/platformio.ini') }}
+          restore-keys: |
+            pio-libdeps-${{ runner.os }}-${{ matrix.env }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build ${{ matrix.env }}
+        env:
+          FIRMWARE_VERSION: ${{ needs.plan.outputs.fw_version }}
+          DMC_CHANNEL: ${{ needs.plan.outputs.dmc_channel }}
+          ENV_NAME: ${{ matrix.env }}
+        run: /usr/bin/env bash build.sh build-firmware "$ENV_NAME"
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: fw-${{ matrix.env }}
+          path: out
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [plan, build]
+    # Publish whatever built; a single failing board must not block the release.
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CHANNEL: ${{ inputs.channel }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      TITLE: ${{ needs.plan.outputs.title }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      SHORT: ${{ needs.plan.outputs.short }}
+      REF: ${{ needs.plan.outputs.ref }}
+      ENVS: ${{ needs.plan.outputs.envs }}
+      FW_VERSION: ${{ needs.plan.outputs.fw_version }}
+      DMC_CHANNEL: ${{ needs.plan.outputs.dmc_channel }}
+      VARIANT_TAG: ${{ needs.plan.outputs.variant_tag }}
+    steps:
+      - name: Download firmware
+        uses: actions/download-artifact@v8
+        with:
+          pattern: fw-*
+          path: artifacts
+
+      - name: Collect assets and missing boards
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python3 - <<'PY'
+          import json, os, pathlib, shutil
+          envs = json.loads(os.environ["ENVS"])
+          built, missing = [], []
+          for env in envs:
+              d = pathlib.Path("artifacts") / f"fw-{env}"
+              files = [p for p in d.glob("*") if p.is_file()] if d.is_dir() else []
+              (built if files else missing).append(env)
+              for p in files:
+                  shutil.copy2(p, pathlib.Path("out") / p.name)
+          pathlib.Path("missing.txt").write_text("".join(m + "\n" for m in missing))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"built={len(built)}\nmissing={len(missing)}\n")
+          PY
+          echo "assets=$(ls out | wc -l)" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if nothing built
+        if: steps.collect.outputs.built == '0'
+        run: |
+          echo "::error::no board built successfully; nothing published"; exit 1
+
+      - name: Publish rolling dev release
+        if: env.CHANNEL == 'dev'
+        run: |
+          set -euo pipefail
+          reported="${FW_VERSION}-${DMC_CHANNEL}-dutchmeshcore.nl${VARIANT_TAG}-${SHORT}"
+          current="**Current build:** \`${SHORT}\` ($(date -u '+%-d %b %Y')) — reports \`${reported}\`."
+
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            printf '%s\n\n%s\n\nThis is a **rolling** release: assets are replaced in place, the tag is never moved.\n' \
+              "⚠️ **DEV CHANNEL — pre-release firmware.** Built from \`${REF}\`." "$current" > notes.md
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --prerelease --target "$SHA" \
+              --title "$TITLE" --notes-file notes.md
+          else
+            # Keep the hand-written notes; only swap the "Current build" line.
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body -q .body > notes.md
+            CURRENT="$current" python3 - <<'PY'
+          import os, re
+          body = open("notes.md", encoding="utf-8").read()
+          line = os.environ["CURRENT"]
+          new, n = re.subn(r"^\*\*Current build:\*\*.*$", lambda m: line, body, count=1, flags=re.M)
+          if n == 0:
+              new = line + "\n\n" + body
+          open("notes.md", "w", encoding="utf-8").write(new)
+          PY
+            gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md
+          fi
+
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" out/* --clobber
+
+          # Prune assets from older builds (the new set is already up, so no gap).
+          keep=$(ls out)
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' |
+            while read -r asset; do
+              grep -qxF "$asset" <<<"$keep" || gh release delete-asset "$TAG" "$asset" -R "$GITHUB_REPOSITORY" --yes
+            done
+
+      - name: Create versioned draft release
+        if: env.CHANNEL == 'release'
+        env:
+          BUILT: ${{ steps.collect.outputs.built }}
+        run: |
+          set -euo pipefail
+          {
+            echo "**${TITLE}** — built from \`${REF}\` at \`${SHORT}\`, ${BUILT} boards."
+            echo
+            if [ -s missing.txt ]; then
+              echo "**Not in this build** (failed to build):"
+              sed 's/^/- `/; s/$/`/' missing.txt
+              echo
+            fi
+            echo "ESP32: flash the \`*-merged.bin\` for a fresh cable install; the \`.bin\` is the app-partition image. nRF52: \`.uf2\` (drag-and-drop) or \`.zip\` (DFU)."
+          } > notes.md
+
+          # Draft via the REST API: a draft has no git tag until it is published, so
+          # assets are uploaded by release id rather than by tag.
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+                 -f tag_name="$TAG" -f target_commitish="$SHA" -f name="$TITLE" \
+                 -F draft=true -F prerelease=true -F body=@notes.md -q .id)
+          for f in out/*; do
+            gh api -X POST "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$(basename "$f")" \
+              -H "Content-Type: application/octet-stream" --input "$f" >/dev/null
+          done
+          echo "Draft release id $id created for $TAG"
+
+      - name: Summary
+        if: always()
+        env:
+          BUILT: ${{ steps.collect.outputs.built }}
+          MISSING: ${{ steps.collect.outputs.missing }}
+          ASSETS: ${{ steps.collect.outputs.assets }}
+        run: |
+          {
+            echo "### ${TITLE}"
+            echo "- tag: \`${TAG}\`, ref \`${REF}\` @ \`${SHORT}\`"
+            echo "- boards built: ${BUILT}, assets: ${ASSETS}"
+            if [ -s missing.txt ]; then
+              echo "- **failed to build (${MISSING}):**"
+              sed 's/^/  - `/; s/$/`/' missing.txt
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
