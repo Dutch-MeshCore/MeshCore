@@ -482,7 +482,7 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* packet) {
   // REVISIT: try to determine which Region (from transport_codes[1]) that Sender is indicating for replies/responses
   //    if unknown, fallback to finding Region from transport_codes[0], the 'scope' used by Sender
-  return false;
+  return dmcFilterFlood(packet);   // DMC companion filter
 }
 
 bool MyMesh::allowPacketForward(const mesh::Packet* packet) {
@@ -558,6 +558,7 @@ void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uin
 
 void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
                                   const char *text) {
+  if (dmcFilterHidden(pkt)) return;   // DMC companion filter: hidden, only let through to be repeated
   int i = 0;
   if (app_target_ver >= 3) {
     out_frame[i++] = RESP_CODE_CHANNEL_MSG_RECV_V3;
@@ -979,6 +980,7 @@ void MyMesh::begin() {
 
   // load persisted prefs
   _store->loadPrefs(_prefs);
+  loadCompanionFilter(_cfilter, *_store);   // DMC companion filter
   sensors.node_lat = _prefs.node_lat;
   sensors.node_lon = _prefs.node_lon;
 
@@ -2209,6 +2211,8 @@ bool MyMesh::handleCommand(const char* command, uint32_t sender_timestamp, char*
     }
     return true;
   }
+
+  if (dmcFilterCommand(command, reply)) return true;   // DMC companion filter
 
   return false;  // not handled
 }
