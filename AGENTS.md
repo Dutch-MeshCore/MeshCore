@@ -38,6 +38,8 @@ base (currently synced to upstream `v1.18.0`, embedded firmware version `v1.18.0
 - **duty-cycle region gating** (`dc.gate.*`) — `test/test_region_gating/`, wired through
   `RegionMap.*`, `Dispatcher.*`, `MyMesh.*` and the radio-prefs CLI;
 - a **frequency-derived duty-cycle default** (`set dutycycle auto`) — `src/helpers/DutyCycleLimits.{cpp,h}`.
+- a **companion receive filter** (`filter ...` on companions) — `examples/companion_radio/CompanionFilter*`,
+  reusing the repeater filter's header-only rule engine; see `docs/companion_filter_reference.md`.
 
 Most of it lives in DMC-only files (see §2). The rest is two DMC build workflows, `build.sh`,
 `scripts/publish-release.sh`, and a handful of small variant and radio tweaks.
@@ -62,6 +64,7 @@ not a side effect. Grouped by what pulls them in:
 ```
 build / release   build.sh, platformio.ini
 packet filter     examples/simple_repeater/MyMesh.{cpp,h}, docs/cli_commands.md
+companion filter  examples/companion_radio/MyMesh.{cpp,h}, docs/cli_commands.md
 region gating     src/Dispatcher.{cpp,h}, src/helpers/RegionMap.{cpp,h},
                   src/helpers/CommonCLI.{cpp,h}, test/mocks/{Arduino,SHA256,Stream}.h
 duty-cycle auto   src/helpers/CommonRadioPrefs.{cpp,h}, src/helpers/CommonCLI.{cpp,h},
