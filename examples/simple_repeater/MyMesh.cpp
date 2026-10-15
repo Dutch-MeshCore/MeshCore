@@ -950,7 +950,8 @@ bool MyMesh::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t 
 
 void MyMesh::onControlDataRecv(mesh::Packet* packet) {
   uint8_t type = packet->payload[0] & 0xF0;    // just test upper 4 bits
-  if (type == CTL_TYPE_NODE_DISCOVER_REQ && packet->payload_len >= 6 && discover_limiter.allow(rtc_clock.getCurrentTime())) {
+  if (type == CTL_TYPE_NODE_DISCOVER_REQ && packet->payload_len >= 6
+      && !isHiddenNode() && discover_limiter.allow(rtc_clock.getCurrentTime())) {
     int i = 1;
     uint8_t  filter = packet->payload[i++];
     uint32_t tag;

@@ -46,6 +46,8 @@ $ sh build.sh build-kiss-radio-firmwares
 Environment Variables:
   DISABLE_DEBUG=1: Disables all debug logging flags (MESH_DEBUG, MESH_PACKET_LOGGING, etc.)
                    If not set, debug flags from variant platformio.ini files are used.
+  DMC_CHANNEL=dev: Stamps a release-channel marker into the embedded version
+                   (v1.17.1-dev-dutchmeshcore.nl-<hash>); the filename is unchanged.
 
 Examples:
 Build without debug logging:
