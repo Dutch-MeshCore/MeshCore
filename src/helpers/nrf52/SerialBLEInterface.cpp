@@ -134,7 +134,7 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
   #else
     Bluefruit.autoConnLed(true);  // true leaves the default automatic control of the LED by the Bluefruit library
   #endif
-  
+
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
   Bluefruit.begin();
  

@@ -149,6 +149,15 @@ struct MQTTPrefs {
   // Rotate the panel 180 degrees from its compiled DISPLAY_ROTATION, for boards
   // mounted the other way up. Runtime only, like display_timeout_secs.
   uint8_t display_flip;
+
+  // Explicitly records completion of first-run network onboarding when a node
+  // is configured over Ethernet and therefore may intentionally have no Wi-Fi
+  // SSID. Existing Wi-Fi installations remain complete by the helper below.
+  uint8_t network_setup_complete;
+
+  // Drop received adverts whose Ed25519 signature fails before publishing.
+  // Defaults off so RF corruption on the mesh stays visible to collectors.
+  uint8_t mqtt_advert_verify;
 };
 
 // Per-slot DMC extension-topic mask (MQTTPrefs::mqtt_slot_extras).
@@ -169,6 +178,11 @@ static inline uint8_t mqttDefaultExtrasForPreset(const char* preset_name) {
   // DMC collectors: dutchmeshcore-1, dutchmeshcore-2, ...
   if (strncmp(preset_name, "dutchmeshcore", 13) == 0) return MQTT_SLOT_EXTRAS_ALL;
   return MQTT_SLOT_EXTRAS_NONE;
+}
+
+static inline bool mqttNetworkSetupComplete(const MQTTPrefs* prefs) {
+  return prefs != nullptr &&
+         (prefs->network_setup_complete != 0 || prefs->wifi_ssid[0] != '\0');
 }
 
 static const uint16_t DISPLAY_TIMEOUT_DEFAULT_SECS = 60;

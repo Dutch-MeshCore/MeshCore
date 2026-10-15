@@ -113,6 +113,7 @@ TEST(MQTTPrefsSerializer, RoundTripsEveryGroupAndNumericSlotKeys) {
   source.snmp_enabled = 1;
   source.radio_watchdog_minutes = 120;
   source.alert_enabled = 1;
+  source.network_setup_complete = 1;
   strcpy(source.alert_psk_hex, "0123456789abcdef0123456789abcdef");
   strcpy(source.alert_hashtag, "#ops");
   strcpy(source.alert_region, "PNW");
@@ -137,6 +138,19 @@ TEST(MQTTPrefsSerializer, RoundTripsEveryGroupAndNumericSlotKeys) {
   EXPECT_EQ(0x8001, loaded.mqtt_slot_packet_filter[5]);
   EXPECT_EQ(MQTT_NEIGHBORS_MAX_INTERVAL_MS, loaded.mqtt_neighbors_interval);
   EXPECT_STREQ("PNW", loaded.alert_region);
+  EXPECT_EQ(1, loaded.network_setup_complete);
+}
+
+TEST(MQTTPrefsSerializer, NetworkOnboardingSupportsWifiAndEthernetOnlyInstalls) {
+  MQTTPrefs prefs = defaults();
+  EXPECT_FALSE(mqttNetworkSetupComplete(&prefs));
+
+  strcpy(prefs.wifi_ssid, "existing-install");
+  EXPECT_TRUE(mqttNetworkSetupComplete(&prefs));
+
+  prefs.wifi_ssid[0] = 0;
+  prefs.network_setup_complete = 1;
+  EXPECT_TRUE(mqttNetworkSetupComplete(&prefs));
 }
 
 TEST(MQTTPrefsSerializer, MissingOptionalKeysKeepDefaults) {
@@ -425,6 +439,43 @@ TEST(MQTTPrefsSerializer, DisplayFlipRoundTripsAndRepairs) {
   EXPECT_EQ(0, prefs.display_flip);
 }
 
+TEST(MQTTPrefsSerializer, AdvertVerifyDefaultsOffRoundTripsAndRepairs) {
+  MQTTPrefs source = defaults();
+  EXPECT_EQ(0, source.mqtt_advert_verify);
+  source.mqtt_advert_verify = 1;
+
+  OutputStream output;
+  MQTTPrefsSerializer writer(&source);
+  ASSERT_TRUE(writer.saveSerial(output));
+
+  MQTTPrefs loaded = defaults();
+  InputStream input(output.text());
+  MQTTPrefsSerializer reader(&loaded);
+  ASSERT_TRUE(reader.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(reader.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_EQ(1, loaded.mqtt_advert_verify);
+
+  // A file written before the key existed keeps the off default.
+  MQTTPrefs older = defaults();
+  InputStream legacy("{version:1,mqtt:{rx_enabled:1}}");
+  MQTTPrefsSerializer legacy_serializer(&older);
+  ASSERT_TRUE(legacy_serializer.loadSerial(legacy));
+  repaired = false;
+  ASSERT_TRUE(legacy_serializer.apply(&repaired));
+  EXPECT_EQ(0, older.mqtt_advert_verify);
+
+  MQTTPrefs prefs = defaults();
+  InputStream bogus("{version:1,mqtt:{advert_verify:5}}");
+  MQTTPrefsSerializer bogus_serializer(&prefs);
+  ASSERT_TRUE(bogus_serializer.loadSerial(bogus));
+  repaired = false;
+  ASSERT_TRUE(bogus_serializer.apply(&repaired));
+  EXPECT_TRUE(repaired);
+  EXPECT_EQ(0, prefs.mqtt_advert_verify);
+}
+
 TEST(MQTTPrefsSerializer, RepairsDisplayTimeoutOutOfRange) {
   MQTTPrefs prefs = defaults();
   InputStream input("{version:1,display:{timeout_s:99999}}");
@@ -469,6 +520,20 @@ TEST(MQTTPrefsSerializer, UnknownGroupsAreIgnoredSoAppendedKeysAreDowngradeSafe)
   bool repaired = false;
   ASSERT_TRUE(serializer.apply(&repaired));
   EXPECT_EQ(45, prefs.display_timeout_secs);
+}
+
+TEST(MQTTPrefsSerializer, UnknownKeysInsideAKnownGroupAreDowngradeSafe) {
+  // Firmware that predates wifi.setup_complete sees it as an unknown key in a
+  // known group; the rest of the group must still load.
+  MQTTPrefs prefs = defaults();
+  InputStream input(
+      "{version:1,wifi:{ssid:\"home\",future_key:1,power_save:2}}");
+  MQTTPrefsSerializer serializer(&prefs);
+  ASSERT_TRUE(serializer.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(serializer.apply(&repaired));
+  EXPECT_STREQ("home", prefs.wifi_ssid);
+  EXPECT_EQ(2, prefs.wifi_power_save);
 }
 
 int main(int argc, char** argv) {

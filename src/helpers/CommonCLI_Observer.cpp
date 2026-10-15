@@ -16,7 +16,10 @@
 #include "TxtDataHelpers.h"
 #include "AlertReporter.h"  // for alertReporterBannedChannelMatch[Hex]()
 #include "MQTTObserverValidation.h"  // pure input validators (host-testable)
+#include "NetworkLink.h"
+#include "WifiPowerSavePolicy.h"     // one powersave value->mode/name mapping
 #include <Utils.h>
+#include <climits>
 #include <new>
 #ifdef ESP_PLATFORM
 #include <WiFi.h>
@@ -369,6 +372,10 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
     _mqtt_prefs.mqtt_rx_enabled = memcmp(&config[8], "on", 2) == 0 ? 1 : 0;
     if (!persistObserverPrefs(reply)) return true;
     strcpy(reply, "OK");
+  } else if (memcmp(config, "mqtt.advert.verify ", 19) == 0) {
+    _mqtt_prefs.mqtt_advert_verify = memcmp(&config[19], "on", 2) == 0 ? 1 : 0;
+    if (!persistObserverPrefs(reply)) return true;
+    strcpy(reply, "OK");
   } else if (memcmp(config, "mqtt.interval ", 14) == 0) {
     uint32_t minutes = _atoi(&config[14]);
     if (minutes >= 1 && minutes <= 60) {
@@ -440,8 +447,9 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
       // runs on the Arduino loop task, shared with mesh/radio processing and the
       // web config batch, so a synchronous wait of up to 30 s would stall the
       // node. The sync runs in the background; verify with `get mqtt.ntp.diag`.
-      if (WiFi.status() != WL_CONNECTED) {
-        strcpy(reply, "OK - saved (WiFi not connected; NTP sync pending)");
+      if (!activeNetworkLink().isConnected()) {
+        snprintf(reply, 160, "OK - saved (%s not connected; NTP sync pending)",
+                 activeNetworkLink().mediumName());
       } else if (!_callbacks->isMqttBridgeRunning()) {
         strcpy(reply, "OK - saved (MQTT bridge not running)");
       } else if (_callbacks->syncMqttNtp()) {
@@ -464,41 +472,29 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
     if (!persistObserverPrefs(reply)) return true;
     strcpy(reply, "OK");
   } else if (memcmp(config, "wifi.powersave ", 15) == 0) {
-    const char* value = &config[15];
     uint8_t ps_value;
-    bool valid = false;
-    if (memcmp(value, "min", 3) == 0 && (value[3] == 0 || value[3] == ' ')) {
-      ps_value = 0;
-      valid = true;
-    } else if (memcmp(value, "none", 4) == 0 && (value[4] == 0 || value[4] == ' ')) {
-      ps_value = 1;
-      valid = true;
-    } else if (memcmp(value, "max", 3) == 0 && (value[3] == 0 || value[3] == ' ')) {
-      ps_value = 2;
-      valid = true;
-    }
-    if (!valid) {
+    if (!WifiPowerSavePolicy::parseName(&config[15], &ps_value)) {
       strcpy(reply, "Error: must be none, min, or max");
     } else {
       _mqtt_prefs.wifi_power_save = ps_value;
       if (!persistObserverPrefs(reply)) return true;
+      const char* ps_name = WifiPowerSavePolicy::nameFor(ps_value);
 #ifdef ESP_PLATFORM
-      if (WiFi.status() == WL_CONNECTED) {
-        wifi_ps_type_t ps_mode = (ps_value == 1) ? WIFI_PS_NONE :
-                                (ps_value == 2) ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM;
-        esp_err_t ps_result = esp_wifi_set_ps(ps_mode);
+      if (strcmp(activeNetworkLink().mediumName(), "wifi") == 0 &&
+          activeNetworkLink().isConnected()) {
+        // Same mapping the link applies on every association, so this cannot
+        // drift back apart (see WifiPowerSavePolicy).
+        esp_err_t ps_result =
+            esp_wifi_set_ps((wifi_ps_type_t)WifiPowerSavePolicy::modeFor(ps_value));
         if (ps_result == ESP_OK) {
-          const char* ps_name = (ps_value == 1) ? "none" : (ps_value == 2) ? "max" : "min";
           sprintf(reply, "OK - power save set to %s", ps_name);
         } else {
           sprintf(reply, "OK - saved, but failed to apply: %d", ps_result);
         }
       } else {
-        const char* ps_name = (ps_value == 1) ? "none" : (ps_value == 2) ? "max" : "min";
         sprintf(reply, "OK - saved as %s (will apply on next WiFi connection)", ps_name);
       }
 #else
-      const char* ps_name = (ps_value == 1) ? "none" : (ps_value == 2) ? "max" : "min";
       sprintf(reply, "OK - saved as %s", ps_name);
 #endif
     }
@@ -984,6 +980,8 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
     sprintf(reply, "> %s", tx_str);
   } else if (memcmp(config, "mqtt.rx", 7) == 0) {
     sprintf(reply, "> %s", _mqtt_prefs.mqtt_rx_enabled ? "on" : "off");
+  } else if (memcmp(config, "mqtt.advert.verify", 18) == 0) {
+    sprintf(reply, "> %s", _mqtt_prefs.mqtt_advert_verify ? "on" : "off");
   } else if (memcmp(config, "mqtt.interval", 13) == 0) {
     uint32_t minutes = (_mqtt_prefs.mqtt_status_interval + 29999) / 60000;
     sprintf(reply, "> %u minutes (%lu ms)", minutes, (unsigned long)_mqtt_prefs.mqtt_status_interval);
@@ -1012,8 +1010,9 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
 #ifdef ESP_PLATFORM
     // Connectivity probe across all configured NTP servers; never updates the clock.
     // Serial console (sender_timestamp == 0) gets a detailed table; LoRa gets a compact list.
-    if (WiFi.status() != WL_CONNECTED) {
-      strcpy(reply, "Error: WiFi not connected");
+    if (!activeNetworkLink().isConnected()) {
+      snprintf(reply, 160, "Error: %s not connected",
+               activeNetworkLink().mediumName());
     } else if (!_callbacks->isMqttBridgeRunning()) {
       strcpy(reply, "Error: MQTT bridge not running");
     } else if (!_callbacks->runMqttNtpDiag(reply, 160, sender_timestamp == 0)) {
@@ -1095,20 +1094,32 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
     } else {
       strcpy(reply, _mqtt_prefs.wifi_password[0] ? "> ******** (serial only)" : "> (not set)");
     }
-  } else if (memcmp(config, "wifi.status", 11) == 0) {
-    wl_status_t status = WiFi.status();
-    const char* status_str;
-    switch (status) {
-      case WL_CONNECTED: status_str = "connected"; break;
-      case WL_NO_SSID_AVAIL: status_str = "no_ssid"; break;
-      case WL_CONNECT_FAILED: status_str = "connect_failed"; break;
-      case WL_CONNECTION_LOST: status_str = "connection_lost"; break;
-      case WL_DISCONNECTED: status_str = "disconnected"; break;
-      case 255: status_str = "not_started"; break;
-      default: status_str = "unknown"; break;
+  } else if (strcmp(config, "link.diag") == 0) {
+    activeNetworkLink().formatDiagnostics(reply, 160);
+  } else if (strcmp(config, "link.dns") == 0) {
+    activeNetworkLink().formatDns(reply, 160);
+  } else if (memcmp(config, "link.status", 11) == 0 ||
+             memcmp(config, "wifi.status", 11) == 0) {
+    NetworkLink& network = activeNetworkLink();
+    const bool wifi_alias = config[0] == 'w';
+    if (wifi_alias && strcmp(network.mediumName(), "wifi") != 0) {
+      snprintf(reply, 160, "> n/a (%s selected; use get link.status)",
+               network.mediumName());
+      return true;
     }
-    if (status == WL_CONNECTED) {
-      sprintf(reply, "> %s, IP: %s, RSSI: %d dBm", status_str, WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    const bool connected = network.isConnected();
+    if (connected) {
+      const int signal = network.rssi();
+      if (wifi_alias) {
+        snprintf(reply, 160, "> %s, IP: %s, RSSI: %d dBm",
+                 network.statusName(), network.localIP().toString().c_str(), signal);
+      } else if (signal == INT_MIN) {
+        snprintf(reply, 160, "> %s: connected, IP: %s", network.mediumName(),
+                 network.localIP().toString().c_str());
+      } else {
+        snprintf(reply, 160, "> %s: connected, IP: %s, RSSI: %d dBm",
+                 network.mediumName(), network.localIP().toString().c_str(), signal);
+      }
 #ifdef WITH_MQTT_BRIDGE
       unsigned long connect_at = MQTTBridge::getWifiConnectedAtMillis();
       if (connect_at != 0) {
@@ -1136,25 +1147,39 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
 #endif
     } else {
 #ifdef WITH_MQTT_BRIDGE
-      uint8_t reason = MQTTBridge::getLastWifiDisconnectReason();
+      uint8_t reason = network.lastDisconnectReason();
       if (reason != 0) {
         const char* desc = MQTTBridge::wifiReasonStr(reason);
         if (desc) {
-          sprintf(reply, "> %s: %s (reason: %d)", status_str, desc, reason);
+          if (wifi_alias) {
+            sprintf(reply, "> %s: %s (reason: %d)", network.statusName(), desc, reason);
+          } else {
+            sprintf(reply, "> %s: %s (reason: %d)", network.mediumName(), desc, reason);
+          }
         } else {
-          sprintf(reply, "> %s: reason %d", status_str, reason);
+          if (wifi_alias) {
+            sprintf(reply, "> %s: reason %d", network.statusName(), reason);
+          } else {
+            sprintf(reply, "> %s: reason %d", network.mediumName(), reason);
+          }
         }
       } else {
-        sprintf(reply, "> %s (code: %d)", status_str, status);
+        if (wifi_alias) {
+          sprintf(reply, "> %s (code: %d)", network.statusName(), network.statusCode());
+        } else {
+          sprintf(reply, "> %s: %s", network.mediumName(), network.statusName());
+        }
       }
 #else
-      sprintf(reply, "> %s (code: %d)", status_str, status);
+      if (wifi_alias) {
+        sprintf(reply, "> %s (code: %d)", network.statusName(), network.statusCode());
+      } else {
+        sprintf(reply, "> %s: %s", network.mediumName(), network.statusName());
+      }
 #endif
     }
   } else if (memcmp(config, "wifi.powersave", 14) == 0) {
-    uint8_t ps = _mqtt_prefs.wifi_power_save;
-    const char* ps_name = (ps == 1) ? "none" : (ps == 2) ? "max" : "min";
-    sprintf(reply, "> %s", ps_name);
+    sprintf(reply, "> %s", WifiPowerSavePolicy::nameFor(_mqtt_prefs.wifi_power_save));
   } else if (memcmp(config, "timezone.offset", 15) == 0) {
     // Must precede the "timezone" (8-byte) check below — that prefix-matches
     // "timezone.offset" too, so the more-specific key has to come first or
@@ -1216,8 +1241,9 @@ bool CommonCLI::handleObserverCommand(uint32_t sender_timestamp, char* command, 
 #ifdef WITH_MQTT_BRIDGE
   if (memcmp(command, "tls.bundletest ", 15) == 0) {
 #ifdef ESP_PLATFORM
-    if (WiFi.status() != WL_CONNECTED) {
-      strcpy(reply, "ERR: WiFi not connected");
+    if (!activeNetworkLink().isConnected()) {
+      snprintf(reply, 160, "ERR: %s not connected",
+               activeNetworkLink().mediumName());
     } else {
       size_t bundle_len = 0;
       if (rootca_crt_bundle_start != nullptr &&
@@ -1262,8 +1288,9 @@ bool CommonCLI::handleObserverCommand(uint32_t sender_timestamp, char* command, 
     //   ota check  -> report available build, do not flash
     //   ota update -> download and flash, then reboot
 #if defined(WITH_MQTT_BRIDGE) && defined(OTA_MANIFEST_BASE)
-    if (WiFi.status() != WL_CONNECTED) {
-      strcpy(reply, "ERR: WiFi not connected");
+    if (!activeNetworkLink().isConnected()) {
+      snprintf(reply, 160, "ERR: %s not connected",
+               activeNetworkLink().mediumName());
     } else if (memcmp(command, "ota check", 9) == 0) {
       // Check is synchronous so its result lands in this reply, and runs with the
       // MQTT bridge UP: the slim per-variant manifest is tiny, so the fetch only
@@ -1312,7 +1339,7 @@ bool CommonCLI::handleObserverCommand(uint32_t sender_timestamp, char* command, 
     strcpy(reply, "ERR: online OTA not supported on this build");
 #endif
     return true;
-  } else if (memcmp(command, "ota branch", 10) == 0) {
+  } else if (memcmp(command, "ota branch", 10) == 0 && (command[10] == 0 || command[10] == ' ')) {
     // Switch (or report) the OTA release channel this device pulls from. The
     // selection is persisted (NodePrefs::ota_channel) and resolved to a baked-in
     // base URL by ota_resolve_base(); it changes only WHERE updates are fetched,
@@ -1322,18 +1349,17 @@ bool CommonCLI::handleObserverCommand(uint32_t sender_timestamp, char* command, 
     const char* arg = command + 10;
     while (*arg == ' ') arg++;
     if (*arg == 0) {
-      snprintf(reply, 160, "channel: %s (%s), base %s",
-               ota_channel_name(_prefs->ota_channel),
-               _prefs->ota_channel == OTA_CH_NATIVE ? "native" : "override",
+      snprintf(reply, 160, "channel: %s (build: %s), base %s",
+               ota_channel_name(_prefs->ota_channel), ota_native_channel_name(),
                ota_resolve_base(_prefs->ota_channel));
     } else {
       uint8_t ch;
       if (!ota_parse_channel(arg, &ch)) {
-        strcpy(reply, "ERR: usage ota branch [stable|dev|default]");
+        strcpy(reply, "ERR: usage ota branch [prod|beta|default] (aliases: stable, dev)");
       } else {
         _prefs->ota_channel = ch;
         savePrefs();
-        snprintf(reply, 160, "channel set to %s, base %s",
+        snprintf(reply, 160, "channel set to %s, base %s; run ota update to switch",
                  ota_channel_name(ch), ota_resolve_base(ch));
       }
     }

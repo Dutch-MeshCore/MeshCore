@@ -264,12 +264,11 @@ float MyMesh::getAirtimeBudgetFactor() const {
   return getEffectiveAirtimeFactor(_prefs.dutycycle_auto, _prefs.airtime_factor, _prefs.freq);
 }
 
+int MyMesh::getInterferenceThreshold() const {
+  return _prefs.interference_threshold;
+}
 bool MyMesh::getCADEnabled() const {
   return _prefs.cad_enabled;
-}
-
-int MyMesh::getInterferenceThreshold() const {
-  return 0; // disabled for now, until currentRSSI() problem is resolved
 }
 
 int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
@@ -916,7 +915,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   send_unscoped = false;
 
   // defaults
-  _prefs.airtime_factor = 1.0; // one half
+  _prefs.airtime_factor = 1.0;
   _prefs.tx_delay_factor = 0.5f;
   _prefs.direct_tx_delay_factor = 0.2f;
   strcpy(_prefs.node_name, "NONAME");

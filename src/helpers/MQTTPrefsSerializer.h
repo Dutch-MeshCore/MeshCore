@@ -4,6 +4,7 @@
 #include <helpers/MQTTObserverValidation.h>
 #include <helpers/MQTTPresets.h>
 #include <helpers/MQTTPrefsStorage.h>
+#include <helpers/WifiPowerSavePolicy.h>
 
 #ifdef WITH_MQTT_BRIDGE
 
@@ -39,22 +40,31 @@ class MQTTPrefsSerializer : public ConfigSerializer {
 
   class WifiPrefs : public ConfigSerializer {
     MQTTPrefs* _prefs;
-    int32_t _power_save;
+    int32_t _power_save, _setup_complete;
     bool _seen_ssid = false, _seen_password = false, _seen_power_save = false;
+    bool _seen_setup_complete = false;
   protected:
     void structure() override {
       defStrict("ssid", _prefs->wifi_ssid, sizeof(_prefs->wifi_ssid), _seen_ssid);
       defStrict("password", _prefs->wifi_password, sizeof(_prefs->wifi_password), _seen_password);
       defStrict("power_save", _power_save, _seen_power_save);
+      defStrict("setup_complete", _setup_complete, _seen_setup_complete);
     }
   public:
-    explicit WifiPrefs(MQTTPrefs* prefs) : _prefs(prefs), _power_save(prefs->wifi_power_save) {}
+    explicit WifiPrefs(MQTTPrefs* prefs)
+        : _prefs(prefs), _power_save(prefs->wifi_power_save),
+          _setup_complete(prefs->network_setup_complete) {}
     bool apply(bool* repaired) {
-      if (_power_save < 0 || _power_save > 2) {
+      if (_power_save < 0 || _power_save > WifiPowerSavePolicy::kMaxStoredValue) {
         _power_save = 1;
         *repaired = true;
       }
+      if (_setup_complete < 0 || _setup_complete > 1) {
+        _setup_complete = 0;
+        *repaired = true;
+      }
       _prefs->wifi_power_save = static_cast<uint8_t>(_power_save);
+      _prefs->network_setup_complete = static_cast<uint8_t>(_setup_complete);
       return true;
     }
   };
@@ -252,11 +262,11 @@ class MQTTPrefsSerializer : public ConfigSerializer {
 
   class MqttPrefs : public ConfigSerializer {
     MQTTPrefs* _prefs;
-    int32_t _packets_enabled, _raw_enabled, _tx_enabled, _rx_enabled;
+    int32_t _packets_enabled, _raw_enabled, _tx_enabled, _rx_enabled, _advert_verify;
     int32_t _config_enabled;   // DMC opt-in `config` topic (set mqtt.config)
     char _default_iata[sizeof(MQTTPrefs::mqtt_iata)];
     bool _seen_origin = false, _seen_iata = false, _seen_packets = false;
-    bool _seen_raw = false, _seen_tx = false, _seen_rx = false;
+    bool _seen_raw = false, _seen_tx = false, _seen_rx = false, _seen_advert_verify = false;
     bool _seen_config = false;
     StatusPrefs _status;
     NeighborPrefs _neighbors;
@@ -274,6 +284,7 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       defStrict("tx_enabled", _tx_enabled, _seen_tx);
       defStrict("rx_enabled", _rx_enabled, _seen_rx);
       defStrict("config_enabled", _config_enabled, _seen_config);
+      defStrict("advert_verify", _advert_verify, _seen_advert_verify);
       def("status", _status);
       def("neighbors", _neighbors);
       def("filter_stats", _filter_stats);
@@ -289,7 +300,7 @@ class MQTTPrefsSerializer : public ConfigSerializer {
     MqttPrefs(MQTTPrefs* prefs, const MQTTPrefs* defaults)
         : _prefs(prefs), _packets_enabled(prefs->mqtt_packets_enabled),
           _raw_enabled(prefs->mqtt_raw_enabled), _tx_enabled(prefs->mqtt_tx_enabled),
-          _rx_enabled(prefs->mqtt_rx_enabled),
+          _rx_enabled(prefs->mqtt_rx_enabled), _advert_verify(prefs->mqtt_advert_verify),
           _config_enabled(prefs->mqtt_config_enabled),
           _status(prefs), _neighbors(prefs), _filter_stats(prefs),
           _owner(prefs), _slot1(prefs, 0), _slot2(prefs, 1),
@@ -309,11 +320,13 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       if (_tx_enabled < 0 || _tx_enabled > 2) { _tx_enabled = 2; *repaired = true; }
       if (_rx_enabled < 0 || _rx_enabled > 1) { _rx_enabled = 1; *repaired = true; }
       if (_config_enabled < 0 || _config_enabled > 1) { _config_enabled = 0; *repaired = true; }
+      if (_advert_verify < 0 || _advert_verify > 1) { _advert_verify = 0; *repaired = true; }
       _prefs->mqtt_packets_enabled = static_cast<uint8_t>(_packets_enabled);
       _prefs->mqtt_raw_enabled = static_cast<uint8_t>(_raw_enabled);
       _prefs->mqtt_tx_enabled = static_cast<uint8_t>(_tx_enabled);
       _prefs->mqtt_rx_enabled = static_cast<uint8_t>(_rx_enabled);
       _prefs->mqtt_config_enabled = static_cast<uint8_t>(_config_enabled);
+      _prefs->mqtt_advert_verify = static_cast<uint8_t>(_advert_verify);
       if (_prefs->mqtt_iata[0] != '\0') {
         if (!mqttIataValid(_prefs->mqtt_iata)) {
           memcpy(_prefs->mqtt_iata, _default_iata, sizeof(_default_iata));

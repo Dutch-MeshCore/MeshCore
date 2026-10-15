@@ -86,8 +86,15 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ### Start an Over-The-Air (OTA) firmware update
 **Usage:**
-- `start ota` — serves the ElegantOTA web upload page on the station IP if joined to a Wi-Fi network, otherwise raises the `MeshCore-OTA` Wi-Fi hotspot.
+- `start ota` — serves the ElegantOTA web upload page on the selected Ethernet or Wi-Fi IP when connected, otherwise raises the `MeshCore-OTA` Wi-Fi hotspot. The manual-OTA session stops after 15 minutes unless an upload is in progress.
 - `start ota ap` — always raises the `MeshCore-OTA` Wi-Fi hotspot, even when joined to a network. Use this when the network applies client isolation and the station IP isn't reachable.
+- `stop ota` — stops an idle manual-OTA web server, releases port 80, and re-enables automatic network switching. It refuses while a firmware upload is in progress.
+
+### Switch the OTA release channel (observer builds)
+
+- `ota branch` — shows the selected channel, the channel this build was made for, and the manifest base `ota check`/`ota update` will use.
+- `ota branch prod` (alias `stable`) / `ota branch beta` (alias `dev`) — pull future `ota update`s from that channel. The selection is saved; run `ota update` to switch.
+- `ota branch default` — follow the channel this build was made for.
 
 ---
 
@@ -450,6 +457,27 @@ filter stats hops
 - On Station G3, remove the PA PL1 jumper to allow software control. `on` selects PA PL1 high/short and `off` selects PA PL1 low/open. The PA PL2 hardware jumper determines whether this switches between power levels 1/3 or 2/4.
 - Select an operating level and SX1262 transmit power that comply with local RF limits and the Station G3 power-supply requirements.
 - The setting is saved immediately, but on Station G3 the level is applied to the hardware at the start of the next transmit, so that the PA supply rail is never re-targeted while the PA is being driven. `get` reports the configured state, which may lead the hardware until the node next transmits.
+
+---
+
+#### View the fan state, or change how it is driven, on supported boards
+**Usage:**
+- `get fan`
+- `set fan <mode>`
+- `set fan.lo <celsius>`
+- `set fan.hi <celsius>`
+
+**Parameters:**
+- `mode`: `on`|`off`|`auto`
+- `celsius`: `fan.lo` is 0-100 and must be below `fan.hi`; `fan.hi` is at most 120 and must be above `fan.lo`
+
+**Default:** `auto`, with `fan.lo` 45 and `fan.hi` 60
+
+**Notes:**
+- Currently the T-Beam 1W, the only board with a fan under software control.
+- `get fan` reports the mode, the measured temperature, whether the fan is running, and the remaining cooldown, e.g. `auto 52.4C fan=on cd=18s`. The temperature reads `n/a` when the NTC value is implausible.
+- In `auto` the fan starts at `fan.hi` and stops at `fan.lo`; the gap between them is what keeps it from chattering around one threshold.
+- `fan.lo` and `fan.hi` are set-only: `get fan` reports the mode and current state, not the thresholds.
 
 ---
 
@@ -1446,6 +1474,21 @@ region save
 **Default:** `advert`
 
 > **Note:** `mqtt.rx` and `mqtt.tx` take effect immediately — no restart required. Both can be enabled simultaneously.
+
+---
+
+#### View or change MQTT advert signature filtering
+**Usage:**
+- `get mqtt.advert.verify`
+- `set mqtt.advert.verify <on|off>`
+
+**Parameters:**
+- `on`: verify the Ed25519 signature of each received advert and skip publishing any that fail (the same check the mesh applies before relaying)
+- `off`: publish received adverts as heard
+
+**Default:** `off`
+
+> **Note:** Adverts are uploaded before the mesh validates them, so a frame corrupted over the air that still passes the LoRa CRC is published with a mangled name or location. Leaving this off keeps that corruption visible to collectors; turning it on hides it from them. Dropped adverts are counted as `badsig=` in `get mqtt.stats`. Takes effect immediately.
 
 ---
 

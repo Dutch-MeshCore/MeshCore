@@ -1,6 +1,7 @@
 #ifdef ESP_PLATFORM
 
 #include "ESP32Board.h"
+#include "NetworkLink.h"
 #include <target.h>
 
 #if defined(ADMIN_PASSWORD) && !defined(DISABLE_WIFI_OTA)   // Repeater or Room Server only
@@ -8,53 +9,160 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncElegantOTA.h>
+#include <Update.h>
 
 #include <SPIFFS.h>
+#include <new>
+
+#include "esp32/HttpPort80Lease.h"
+
+namespace {
+
+AsyncWebServer* ota_server = nullptr;
+bool ota_routes_registered = false;
+bool ota_server_running = false;
+bool ota_raised_ap = false;
+bool ota_network_locked = false;
+uint32_t ota_started_at = 0;
+char ota_id_buf[60];
+char ota_home_buf[90];
+char ota_url_buf[80];
+
+void otaRegisterRoutes() {
+  ota_server->on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->send(200, "text/html", ota_home_buf);
+  });
+  ota_server->on("/log", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->send(SPIFFS, "/packet_log", "text/plain");
+  });
+  AsyncElegantOTA.begin(ota_server);
+  ota_routes_registered = true;
+}
+
+void otaReleaseTransport() {
+  if (ota_server) ota_server->end();
+  if (ota_raised_ap) WiFi.softAPdisconnect(true);
+  ota_raised_ap = false;
+  ota_server_running = false;
+  ota_started_at = 0;
+  if (ota_network_locked) {
+    activeNetworkLink().unlockSwitching();
+    ota_network_locked = false;
+  }
+  HttpPort80Lease::release(HttpPort80Lease::Owner::Ota);
+}
+
+}  // namespace
 
 bool ESP32Board::startOTAUpdate(const char* id, char reply[], bool force_ap) {
-  inhibit_sleep = true;   // prevent sleep during OTA
+  if (ota_server_running) {
+    ota_started_at = millis();
+    snprintf(reply, 160, "Started: %s", ota_url_buf);
+    return true;
+  }
+  if (!HttpPort80Lease::acquire(HttpPort80Lease::Owner::Ota)) {
+    snprintf(reply, 160, "Error: port 80 is in use by %s",
+             HttpPort80Lease::ownerName());
+    return false;
+  }
 
-  // If the device is already on a WiFi network (e.g. an observer joined in STA
-  // mode), serve ElegantOTA on the station IP so it's reachable from the LAN
-  // without joining a separate AP. Otherwise raise the MeshCore-OTA SoftAP.
+  inhibit_sleep = true;   // prevent sleep during OTA
+  activeNetworkLink().lockSwitching();
+  ota_network_locked = true;
+
+  // If the device is already on its selected network, serve ElegantOTA on that
+  // address so it is reachable without joining a separate AP. Otherwise raise
+  // the MeshCore-OTA SoftAP.
   // force_ap ("start ota ap") always raises the SoftAP, so the OTA UI stays
   // reachable even when the joined network applies client isolation and the
   // station IP can't be reached.
   IPAddress ip;
-  if (!force_ap && WiFi.status() == WL_CONNECTED) {
-    ip = WiFi.localIP();
+  if (NetworkPolicy::startOtaUsesSelectedNetwork(
+          force_ap, activeNetworkLink().isConnected())) {
+    ip = activeNetworkLink().localIP();
   } else {
-    WiFi.softAP("MeshCore-OTA", NULL);
+    ota_raised_ap = WiFi.softAP("MeshCore-OTA", NULL);
+    if (!ota_raised_ap) {
+      otaReleaseTransport();
+      inhibit_sleep = false;
+      strcpy(reply, "Error: failed to start OTA AP");
+      return false;
+    }
     ip = WiFi.softAPIP();
   }
 
-  sprintf(reply, "Started: http://%s/update", ip.toString().c_str());
+  snprintf(ota_id_buf, sizeof(ota_id_buf), "%s (%s)", id,
+           getManufacturerName());
+  snprintf(ota_home_buf, sizeof(ota_home_buf),
+           "<H2>Hi! I am a MeshCore Repeater. ID: %s</H2>", id);
+  snprintf(ota_url_buf, sizeof(ota_url_buf), "http://%s/update",
+           ip.toString().c_str());
+
+  if (!ota_server) {
+    ota_server = new (std::nothrow) AsyncWebServer(80);
+    if (!ota_server) {
+      otaReleaseTransport();
+      inhibit_sleep = false;
+      strcpy(reply, "Error: insufficient memory for OTA server");
+      return false;
+    }
+  }
+  AsyncElegantOTA.setID(ota_id_buf);
+  if (!ota_routes_registered) otaRegisterRoutes();
+  ota_server->begin();
+  if (ota_server->state() != LISTEN) {
+    otaReleaseTransport();
+    inhibit_sleep = false;
+    strcpy(reply, "Error: failed to bind OTA server to port 80");
+    return false;
+  }
+
+  ota_server_running = true;
+  ota_started_at = millis();
+  snprintf(reply, 160, "Started: %s", ota_url_buf);
   MESH_DEBUG_PRINTLN("startOTAUpdate: %s", reply);
-
-  static char id_buf[60];
-  sprintf(id_buf, "%s (%s)", id, getManufacturerName());
-  static char home_buf[90];
-  sprintf(home_buf, "<H2>Hi! I am a MeshCore Repeater. ID: %s</H2>", id);
-
-  AsyncWebServer* server = new AsyncWebServer(80);
-
-  server->on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/html", home_buf);
-  });
-  server->on("/log", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(SPIFFS, "/packet_log", "text/plain");
-  });
-
-  AsyncElegantOTA.setID(id_buf);
-  AsyncElegantOTA.begin(server);    // Start ElegantOTA
-  server->begin();
 
   return true;
 }
 
+bool ESP32Board::stopOTAUpdate(char reply[]) {
+  if (!ota_server_running) return false;
+  if (Update.isRunning()) {
+    strcpy(reply, "Error: firmware upload is in progress");
+    return false;
+  }
+
+  otaReleaseTransport();
+  inhibit_sleep = false;
+  strcpy(reply, "OK - OTA web server stopped");
+  return true;
+}
+
+bool ESP32Board::isOTAUpdateInProgress() const {
+  return ota_server_running && Update.isRunning();
+}
+
+void ESP32Board::maintainOTAUpdate(uint32_t now_ms) {
+  if (!ota_server_running || Update.isRunning()) return;
+  if (!NetworkPolicy::manualOtaTimeoutDue(now_ms, ota_started_at, false)) return;
+  char reply[160];
+  if (stopOTAUpdate(reply)) MESH_DEBUG_PRINTLN("OTA: %s", reply);
+}
+
 #else
 bool ESP32Board::startOTAUpdate(const char* id, char reply[], bool force_ap) {
+  (void)id; (void)reply; (void)force_ap;
   return false; // not supported
+}
+bool ESP32Board::stopOTAUpdate(char reply[]) {
+  (void)reply;
+  return false;
+}
+bool ESP32Board::isOTAUpdateInProgress() const {
+  return false;
+}
+void ESP32Board::maintainOTAUpdate(uint32_t now_ms) {
+  (void)now_ms;
 }
 #endif
 
@@ -78,6 +186,9 @@ bool ESP32Board::startOTAUpdate(const char* id, char reply[], bool force_ap) {
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_partition.h>
+#include <esp_ota_ops.h>
+#include <esp_image_format.h>
+#include "OtaChannel.h"
 
 // Embedded CA bundle (produced by board_build.embed_files). Weak so non-bundle
 // builds still link; we check for presence at runtime.
@@ -121,6 +232,31 @@ static void ota_parseVersion(const char* ver, char* base_out, size_t base_sz, in
     strncpy(base_out, ver, base_sz - 1);
     base_out[base_sz - 1] = 0;
   }
+}
+
+// Read the compat tag of the image just written to `part`, bounded by the image's own
+// length: bytes past it can be a stale, tagged image from an earlier flash.
+static bool ota_readImageCompat(const esp_partition_t* part, OtaCompat* out) {
+  const esp_partition_pos_t pos = { part->address, part->size };
+  esp_image_metadata_t meta;
+  if (esp_image_verify(ESP_IMAGE_VERIFY_SILENT, &pos, &meta) != ESP_OK) return false;
+  static const size_t kChunk = 2048, kTail = 64;  // tail > tag + value, so a split tag is seen whole
+  static uint8_t buf[kTail + kChunk];
+  size_t have = 0;
+  for (uint32_t off = 0; off < meta.image_len;) {
+    size_t n = meta.image_len - off;
+    if (n > kChunk) n = kChunk;
+    if (esp_partition_read(part, off, buf + have, n) != ESP_OK) return false;
+    have += n;
+    off += n;
+    const char* v = ota_compat_find(buf, have);
+    if (v) return ota_compat_parse(v, out);
+    if (have > kTail) {
+      memmove(buf, buf + have - kTail, kTail);
+      have = kTail;
+    }
+  }
+  return false;
 }
 
 // Canonical signature of the FLASHED partition table — MUST match
@@ -183,16 +319,20 @@ bool ESP32Board::otaFromManifest(const char* manifest_base, const char* current_
   // mesh-receive call chain (it overflows the loopTask canary). Run the work in a
   // dedicated 24 KB-stack task and block here until it finishes. The big stack is
   // freed when the task exits; on a successful update the chip reboots inside it.
+  NetworkLink& network = activeNetworkLink();
+  network.lockSwitching();
   OtaTaskArgs args = { this, manifest_base, current_ver, dry_run, reply, false, false };
   TaskHandle_t handle = nullptr;
   BaseType_t ok = xTaskCreatePinnedToCore(ota_task_entry, "ota", 24576, &args, 5, &handle, 1);
   if (ok != pdPASS) {
+    network.unlockSwitching();
     strcpy(reply, "ERR: OTA task spawn failed");
     return false;
   }
   while (!args.done) {
     delay(50);  // Arduino delay() yields to other tasks
   }
+  network.unlockSwitching();
   return args.result;
 }
 
@@ -201,8 +341,9 @@ bool ESP32Board::otaFromManifestImpl(const char* manifest_base, const char* curr
   strcpy(reply, "ERR: OTA not configured (build via build.sh)");
   return false;
 #else
-  if (WiFi.status() != WL_CONNECTED) {
-    strcpy(reply, "ERR: WiFi not connected");
+  if (!activeNetworkLink().isConnected()) {
+    snprintf(reply, 160, "ERR: %s not connected",
+             activeNetworkLink().mediumName());
     return false;
   }
 
@@ -334,10 +475,15 @@ bool ESP32Board::otaFromManifestImpl(const char* manifest_base, const char* curr
   bool same_base = (own_base[0] && avail_base[0] && strcmp(own_base, avail_base) == 0);
   bool have_builds = (own_build >= 0 && avail_build >= 0);
   bool diff_base = (own_base[0] && avail_base[0] && !same_base);
+  // Another channel's image always differs (its native base does), even from the same
+  // commit; build counters are per channel, so build numbers only compare natively.
+  bool cross_channel = (strcmp(manifest_base, OTA_MANIFEST_BASE) != 0);
 
   int behind = 0;
   bool up_to_date;
-  if (same_base && have_builds) {
+  if (cross_channel) {
+    up_to_date = false;
+  } else if (same_base && have_builds) {
     behind = avail_build - own_build;
     up_to_date = (behind <= 0);
   } else if (diff_base) {
@@ -362,6 +508,8 @@ bool ESP32Board::otaFromManifestImpl(const char* manifest_base, const char* curr
   if (dry_run) {
     if (up_to_date) {
       snprintf(reply, 160, "up to date: %s", avail_disp);
+    } else if (cross_channel) {
+      snprintf(reply, 160, "update available: %s -> %s (channel switch)%s", own_disp, avail_disp, pc_note);
     } else if (same_base && have_builds) {
       snprintf(reply, 160, "update available: %s -> %s (%d behind)%s", own_disp, avail_disp, behind, pc_note);
     } else if (diff_base) {
@@ -405,9 +553,35 @@ bool ESP32Board::otaFromManifestImpl(const char* manifest_base, const char* curr
     int d = (int)((int64_t)cur * 10 / total);
     if (d != ota_progress_decile) { ota_progress_decile = d; Serial.printf("OTA: %d%%\n", d * 10); }
   });
-  httpUpdate.onEnd([]() { Serial.println("OTA: write complete, rebooting..."); });
-  httpUpdate.rebootOnUpdate(true);  // reboots into the new image on success
+  httpUpdate.onEnd([]() { Serial.println("OTA: write complete"); });
+  // A channel switch is checked before it may boot (below); native updates reboot here.
+  httpUpdate.rebootOnUpdate(!cross_channel);
   t_httpUpdate_return ret = httpUpdate.update(uclient, file_url);
+  if (ret == HTTP_UPDATE_OK && cross_channel) {
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    const esp_partition_t* target = esp_ota_get_boot_partition();
+    OtaCompat own = {0, 0}, img = {0, 0};
+    const char* volatile own_tag = ota_compat_tag;  // volatile: the tag must stay in the image
+    ota_compat_parse(own_tag + sizeof(OTA_COMPAT_TAG) - 1, &own);
+    bool tagged = target && target != running && ota_readImageCompat(target, &img);
+    if (tagged && ota_compat_ok(own, img)) {
+      Serial.println("OTA: channel switch compatible, rebooting...");
+      delay(100);
+      ESP.restart();
+    }
+    // Point boot back at the running image so the refused build never starts.
+    bool reverted = (esp_ota_set_boot_partition(running) == ESP_OK);
+    inhibit_sleep = false;
+    if (!tagged) {
+      snprintf(reply, 160, "ERR: channel switch refused: %s has no compat tag; cable flash%s",
+               avail_disp, reverted ? "" : " [boot revert FAILED]");
+    } else {
+      snprintf(reply, 160, "ERR: channel switch refused: target compat %d/%x < this node %d/%x; cable flash%s",
+               img.gen, img.caps, own.gen, own.caps, reverted ? "" : " [boot revert FAILED]");
+    }
+    Serial.print("OTA: "); Serial.println(reply);
+    return false;
+  }
 
   // Only reached on failure (success reboots inside update()).
   inhibit_sleep = false;
