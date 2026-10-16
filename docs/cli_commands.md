@@ -11,6 +11,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - [Information](#info)
 - [Packet Filter](#packet-filter-repeater-only)
 - [Companion Receive Filter](#companion-receive-filter-companion-only)
+- [Companion SNMP, OTA and MAC](#companion-snmp-ota-and-mac-companion-only)
 - [Configuration](#configuration)
   - [Radio](#radio)
   - [System](#system)
@@ -343,6 +344,26 @@ Find more information in [companion_filter_reference.md](companion_filter_refere
 - `filter stats malformed|age|path|sender|text` — what each setting filtered, in the same formats as the repeater filter
 
 **Note:** Malformed, age and path filtering *drop* a packet: with repeat enabled it is not repeated either. Sender and text rules only *hide* it: it is still repeated for others.
+
+---
+
+## Companion SNMP, OTA and MAC (Companion Only)
+
+DMC companion builds that can join Wi-Fi (ESP32 `*_companion_radio_wifi`, and the ESP32 `*_companion_radio_ble` boards with Wi-Fi) have an SNMP agent and pull OTA from the DutchMeshCore OTA server. Sent through the app's command console, USB serial or remote CLI. Settings are persisted to `/cnet.json`.
+
+Find more information in [companion_snmp_ota_reference.md](companion_snmp_ota_reference.md)
+
+**Usage:**
+- `get snmp` / `set snmp <on|off>` — read-only SNMPv2c agent on UDP 161, off by default; same OID layout as the observer firmware
+- `get snmp.status` — `off`, `on, waiting for Wi-Fi` or `running on udp/161`
+- `get snmp.community` / `set snmp.community <text>` — default `public`; not readable over remote CLI
+- `ota check` — is a newer build published for this board?
+- `ota update` — check, then download, flash and reboot (HTTPS, verified)
+- `ota status` — `idle`, `starting` or the last failure
+- `ota branch` / `ota branch <stable|dev|default>` — the OTA channel
+- `get mac` / `get wifi.mac` / `get ble.mac` — factory MAC addresses (every ESP32 build; `n/a` elsewhere)
+
+**Note:** An update with a different partition table, or on a board without a second app slot, needs a USB flash.
 
 ---
 

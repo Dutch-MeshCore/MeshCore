@@ -67,6 +67,20 @@ directe berichten worden nooit gefilterd. Opgeslagen in `/cfilter.json`. Zie
 Met repeat aan worden malformed/age/path-berichten ook niet doorgestuurd; sender/text-regels
 verbergen een bericht alleen voor jou en het wordt nog steeds doorgestuurd voor anderen.
 
+## Companion SNMP, OTA en MAC
+
+Op **companion**-builds die met wifi kunnen verbinden (ESP32 `*_companion_radio_wifi`, en de
+ESP32 `*_companion_radio_ble`-boards met wifi). Opgeslagen in `/cnet.json`. Zie
+[`docs/companion_snmp_ota_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_snmp_ota_reference.md).
+
+- `get snmp` / `set snmp on|off` (standaard **uit**; UDP 161, alleen lezen, OID-indeling van de observer)
+- `get snmp.status` / `get snmp.community` / `set snmp.community <tekst>` (standaard `public`)
+- `ota check` / `ota update` / `ota status` (DutchMeshCore OTA-server, HTTPS)
+- `ota branch` / `ota branch stable|dev|default`
+- `get mac` / `get wifi.mac` / `get ble.mac` (elke ESP32-build)
+
+Een nieuwe partitietabel, of een board zonder tweede app-slot, heeft nog steeds een USB-flash nodig.
+
 ## Duty-cycle region gating
 
 `dc.gate.*`. Standaard **uit**. Werpt inter-regio-floodverkeer af wanneer de repeater
