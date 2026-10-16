@@ -151,6 +151,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
 #endif
 #ifdef WITH_MQTT_BRIDGE
   AlertReporter _alerter;
+  unsigned long next_filter_publish = 0;  // filter-stats publish deadline (0 = fire ASAP)
+  unsigned long next_config_publish = 0;  // node-config publish deadline (0 = fire ASAP)
 #endif
 #ifdef WITH_WEBCONFIG
   WebConfigServer* _webconfig = NULL;  // heap-allocated while running, freed on stop
@@ -192,8 +194,6 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
   unsigned long neighbor_discover_until;  // current queue or response deadline
   mesh::Packet* neighbor_discover_request; // request awaiting TX completion
   unsigned long next_neighbors_publish;   // periodic publish deadline (0 = fire ASAP)
-  unsigned long next_filter_publish = 0;  // filter-stats publish deadline (0 = fire ASAP)
-  unsigned long next_config_publish = 0;  // node-config publish deadline (0 = fire ASAP)
   char self_scopes_buf[96];
   char self_default_scope_buf[31];
   char neighbor_discover_origin[32];

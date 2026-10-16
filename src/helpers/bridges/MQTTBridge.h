@@ -600,6 +600,7 @@ private:
   // Publishes the pending _neighbors_json_buffer to every connected slot's
   // neighbors topic. Runs on the MQTT task (Core 0) only.
   bool publishNeighbors();
+#endif
 
   // Publishes the pending _filter_json_buffer to every connected slot's filter
   // topic. Runs on the MQTT task (Core 0) only.
@@ -608,7 +609,6 @@ private:
   // Publishes the pending _config_json_buffer to every connected slot's config
   // topic. Runs on the MQTT task (Core 0) only.
   bool publishConfig();
-#endif
   void queuePacket(mesh::Packet* packet, bool is_tx);
   void dequeuePacket();
   bool isAnySlotConnected();
@@ -758,14 +758,6 @@ public:
   // already in flight or the buffer is unavailable.
   void requestPublishNeighbors(const char* json, size_t len);
 
-  // Filter-stats analog of requestPublishNeighbors: the mesh task hands over the
-  // built JSON, the MQTT task publishes it to every slot's filter topic.
-  void requestPublishFilterStats(const char* json, size_t len);
-
-  // Config-topic analog of requestPublishFilterStats: the mesh task hands over
-  // the built node-config JSON, the MQTT task publishes it to every slot.
-  void requestPublishConfig(const char* json, size_t len);
-
   // Periodic-neighbors schedule, reported by the mesh loop for `get mqtt.status`.
   // The mesh owns the timer; the bridge only caches the summary so the wrap-safe
   // millis math stays on the side that already has those helpers.
@@ -776,6 +768,14 @@ public:
   };
   void setNeighborsSchedule(NeighborsPhase phase, uint32_t secs_until_next);
 #endif
+
+  // Filter-stats analog of requestPublishNeighbors: the mesh task hands over the
+  // built JSON, the MQTT task publishes it to every slot's filter topic.
+  void requestPublishFilterStats(const char* json, size_t len);
+
+  // Config-topic analog of requestPublishFilterStats: the mesh task hands over
+  // the built node-config JSON, the MQTT task publishes it to every slot.
+  void requestPublishConfig(const char* json, size_t len);
 
   int getConnectedBrokers() const;
   int getQueueSize() const;

@@ -4426,7 +4426,10 @@ bool MQTTBridge::publishNeighbors() {
   }
   return published;
 }
+#endif  // WITH_MQTT_NEIGHBORS
 
+// Filter-stats and node-config use their own small static buffers, so they are
+// available on every observer build, not only those with neighbors publishing.
 void MQTTBridge::requestPublishFilterStats(const char* json, size_t len) {
   if (!json || len == 0) return;
   // Drop a new snapshot while one is still in flight (Core 0 clears the flag).
@@ -4498,7 +4501,6 @@ bool MQTTBridge::publishConfig() {
   }
   return published;
 }
-#endif  // WITH_MQTT_NEIGHBORS
 
 // ---------------------------------------------------------------------------
 // Queue management
