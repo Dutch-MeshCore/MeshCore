@@ -88,6 +88,13 @@ Nur auf ESP32-Observer-Builds.
   `config`-Topic, gespeichert in `/mqtt.json`), `set mqtt.filter.interval <60-600>`,
   `set mqtt.neighbors <on|off>` + `set mqtt.neighbors.interval <Stunden>` (nur mit PSRAM)
 - **NTP**: `set mqtt.ntp <host|none>`, `get mqtt.ntp.diag`
+- **Netzwerkverbindung**: `get link.status` (Medium, Verbindung, IP, Signal und Uptime;
+  ersetzt `get wifi.status`), `get link.diag` (warum Ethernet oder WiFi gewählt wurde,
+  ThinkNode-M7-Ethernet-Builds), `get link.dns` (aktive DNS-Resolver und Gateway)
+- **Advert-Prüfung**: `set mqtt.advert.verify <on|off>` / `get mqtt.advert.verify`
+  (Adverts mit ungültiger Signatur nicht veröffentlichen; Standard `off`)
+- **Manuelles OTA**: `stop ota` (stoppt einen untätigen `start ota`-Webserver und gibt
+  Port 80 frei; verweigert während eines Uploads)
 
 Veröffentlichte Topics (Suffixe an einem gemeinsamen Prefix): `status`, `packets`,
 `filter`, `neighbors`, `config`.

@@ -49,6 +49,8 @@ a manual upload:
 - `ota branch default`: clear the channel override.
 - `ota update`: download the available build and flash it.
 
+The node reports the channels as `beta` (= `dev`) and `prod` (= `stable`); `ota branch beta` and `ota branch prod` work too.
+
 These `ota` commands are available on observer builds only.
 
 ## Notes

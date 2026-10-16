@@ -14,7 +14,8 @@ flash is the web flasher.
 ## Firmware tracks
 
 DMC has three tracks, each based on a branch. All three are repeater firmware; DMC does
-not ship companion firmware.
+not ship companion firmware. For a companion with a receive filter, SNMP and OTA, see
+[Meshcomod (EV Fork)](https://github.com/Elektr0Vodka/meshcomod) (pre-release, also in the Toolbox flasher).
 
 | Track (branch) | What it is | Includes |
 | --- | --- | --- |
@@ -24,6 +25,15 @@ not ship companion firmware.
 
 In the observer track, repeaters get everything; room servers get MQTT and OTA but no
 filter, because a room server does not repeat by definition.
+
+## Stable and dev releases
+
+- **Stable**: one release per version, for example `dmc-repeater-v1.17.1`.
+- **Dev**: rolling pre-releases rebuilt in place from the branch: `dmc-repeater-dev`,
+  `dmc-repeater-packetlog-dev` and `observer-mqtt-dev`. They now run `v1.18.0` (upstream
+  MeshCore v1.18.0, merged on 2026-10-15). A dev build reports
+  `v1.18.0-dev-dutchmeshcore.nl-<hash>` in `ver`; the file name has no `-dev`. The
+  Toolbox flasher lists them as `1.18.0-dev`.
 
 ## File selection
 

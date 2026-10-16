@@ -44,8 +44,9 @@ pio device monitor --port <PORT> --baud 115200
 
 ## Release-style builds
 
-`build.sh` produces branded artifacts with the distinctive version string
-`v1.17.1.01-dutchmeshcore.nl-<hash>`.
+`build.sh` produces branded artifacts. With `FIRMWARE_VERSION=v1.18.0` the node reports
+`v1.18.0-dutchmeshcore.nl-<hash>` in `ver`, or `v1.18.0-dev-dutchmeshcore.nl-<hash>` with
+`DMC_CHANNEL=dev`. The file name stays `<env>-v1.18.0-<hash>.bin`.
 
 ## Radio defaults
 
