@@ -12,6 +12,7 @@ name: DMC Firmware Release
 #   repeater-mqtt       dmc-observer-dev     *_repeater_observer_mqtt      DMC Repeater MQTT Firmware
 #   room-server-mqtt    dmc-observer-dev     *_room_server_observer_mqtt   DMC Room Server MQTT Firmware
 #   observer-mqtt       dmc-observer-dev     *_observer_mqtt               DMC MQTT Observer Firmware
+#   companion           dmc-dev              *_companion_radio_ble/_wifi   DMC Companion Filter Firmware
 #
 # channel=dev      refreshes the rolling prerelease (dmc-<firmware>-dev; observer-mqtt-dev
 #                  for observer-mqtt) in place: built with DMC_CHANNEL=dev, assets replaced,
@@ -42,6 +43,7 @@ on:
           - repeater-mqtt
           - room-server-mqtt
           - observer-mqtt
+          - companion
       channel:
         description: "dev = refresh the rolling prerelease (MQTT: observer-mqtt only); release = new versioned draft"
         type: choice
@@ -101,6 +103,7 @@ jobs:
             repeater-mqtt)      REF=dmc-observer-dev;  PATTERN='_repeater_observer_mqtt$';    TITLE='DMC Repeater MQTT Firmware';    VARIANT_TAG='-observer-mqtt' ;;
             room-server-mqtt)   REF=dmc-observer-dev;  PATTERN='_room_server_observer_mqtt$'; TITLE='DMC Room Server MQTT Firmware'; VARIANT_TAG='-observer-mqtt' ;;
             observer-mqtt)      REF=dmc-observer-dev;  PATTERN='_observer_mqtt$';             TITLE='DMC MQTT Observer Firmware';    VARIANT_TAG='-observer-mqtt' ;;
+            companion)          REF=dmc-dev;           PATTERN='_companion_radio_(ble|wifi)$'; TITLE='DMC Companion Filter Firmware' ;;
             *) echo "::error::unknown firmware '$FIRMWARE'"; exit 1 ;;
           esac
           if [ -n "$REF_OVERRIDE" ]; then REF="$REF_OVERRIDE"; fi
@@ -324,6 +327,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       CHANNEL: ${{ inputs.channel }}
+      FIRMWARE: ${{ inputs.firmware }}
       TAG: ${{ needs.plan.outputs.tag }}
       TITLE: ${{ needs.plan.outputs.title }}
       SHA: ${{ needs.plan.outputs.sha }}
@@ -417,6 +421,10 @@ jobs:
               echo
             fi
             echo "ESP32: flash the \`*-merged.bin\` for a fresh cable install; the \`.bin\` is the app-partition image. nRF52: \`.uf2\` (drag-and-drop) or \`.zip\` (DFU)."
+            if [ "$FIRMWARE" = companion ]; then
+              echo
+              echo "The receive filter is off until enabled (\`filter on\`). Upgrading from meshcomod: flash the app \`.bin\`, not the \`-merged.bin\`, so the settings are kept. Wi-Fi: set the network with \`set wifi.ssid\` / \`set wifi.pwd\` over USB."
+            fi
           } > notes.md
 
           # Draft via the REST API: a draft has no git tag until it is published, so
