@@ -12,6 +12,7 @@
 #include <Update.h>
 
 #include <SPIFFS.h>
+#include <esp_ota_ops.h>
 #include <new>
 
 #include "esp32/HttpPort80Lease.h"
@@ -59,6 +60,11 @@ bool ESP32Board::startOTAUpdate(const char* id, char reply[], bool force_ap) {
     ota_started_at = millis();
     snprintf(reply, 160, "Started: %s", ota_url_buf);
     return true;
+  }
+  // Single-app-slot builds have nowhere to write an uploaded image.
+  if (esp_ota_get_next_update_partition(nullptr) == nullptr) {
+    strcpy(reply, "Error: single app slot build; update over USB");
+    return false;
   }
   if (!HttpPort80Lease::acquire(HttpPort80Lease::Owner::Ota)) {
     snprintf(reply, 160, "Error: port 80 is in use by %s",
@@ -451,6 +457,9 @@ bool ESP32Board::otaFromManifestImpl(const char* manifest_base, const char* curr
   } else {
     partition_change = legacy_partition_change;
   }
+  // Single-app-slot builds (e.g. the 4 MB T-LoRa observer on huge_app.csv) have
+  // no inactive slot to stream into, so every update is a cable flash.
+  bool single_slot = (esp_ota_get_next_update_partition(nullptr) == nullptr);
 
   // --- Determine current-vs-available --------------------------------------
   // Our running version token (e.g. "v1.16.0.5"), i.e. current_ver up to the
@@ -499,7 +508,8 @@ bool ESP32Board::otaFromManifestImpl(const char* manifest_base, const char* curr
   else                  snprintf(avail_disp, sizeof(avail_disp), "%s", avail_hash);
   if (own_version[0])   snprintf(own_disp, sizeof(own_disp), "%s (%s)", own_version, cur_hash);
   else                  snprintf(own_disp, sizeof(own_disp), "%s", cur_hash);
-  const char* pc_note = partition_change ? " [partition change: cable flash]" : "";
+  const char* pc_note = partition_change ? " [partition change: cable flash]"
+                      : single_slot      ? " [single app slot: cable flash]" : "";
 
   // --- Report (dry run / `ota check`) --------------------------------------
   // Returns true iff an OTA-applicable update is available (not up-to-date and not
@@ -517,12 +527,16 @@ bool ESP32Board::otaFromManifestImpl(const char* manifest_base, const char* curr
     } else {
       snprintf(reply, 160, "update available: %s -> %s%s", own_disp, avail_disp, pc_note);
     }
-    return (!up_to_date && !partition_change);
+    return (!up_to_date && !partition_change && !single_slot);
   }
 
   // --- Gates (real `ota update`) -------------------------------------------
   if (partition_change) {
     snprintf(reply, 160, "ERR: %s needs cable flash (partition change)", avail_disp);
+    return false;
+  }
+  if (single_slot) {
+    snprintf(reply, 160, "ERR: %s needs cable flash (single app slot build)", avail_disp);
     return false;
   }
   if (up_to_date) {

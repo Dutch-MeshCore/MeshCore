@@ -239,9 +239,11 @@ opens WebConfig on the LAN with a one-time login code printed on serial (and sho
 the display), and requires replacing the admin password. The board has PSRAM, so these
 builds get neighbors publication (`WITH_MQTT_NEIGHBORS`) automatically.
 
-**TLora naming:** The env prefix `LilyGo_TLora_V2_1_1_6` is LilyGo’s **T-LoRa V2.1–1.6** board (SX1276); PlatformIO selects **`ttgo-lora32-v1`** (TTGO LoRa32 V1.0). **MQTT observer** envs extend a slim base **without** `sensor_base` so the image fits `min_spiffs`; **all other** `LilyGo_TLora_V2_1_1_6_*` targets still use optional I2C environmental sensors as before. The **`lilygo_tlora_c6`** variant is separate hardware (ESP32-C6).
+**TLora naming:** The env prefix `LilyGo_TLora_V2_1_1_6` is LilyGo’s **T-LoRa V2.1–1.6** board (SX1276); PlatformIO selects **`ttgo-lora32-v1`** (TTGO LoRa32 V1.0). **MQTT observer** envs extend a slim base **without** `sensor_base` to save flash; **all other** `LilyGo_TLora_V2_1_1_6_*` targets still use optional I2C environmental sensors as before. The **`lilygo_tlora_c6`** variant is separate hardware (ESP32-C6).
 
 **T-LoRa V2.1–1.6 MQTT observer — one WSS broker:** This hardware is **classic ESP32 without PSRAM**. Each WSS preset uses a full TLS stack and large contiguous heap allocations; **two active broker presets at once** typically fails the second connection (`mbedtls_ssl_setup` / `esp-tls` `0x8017`, low `IntMax` in `memory`). **Treat these observer builds as supporting one active cloud preset:** configure the broker you need in `mqtt1` or `mqtt2`, and set the other slot to `none` (e.g. `set mqtt2.preset none`). Use PSRAM-capable boards if you need multiple simultaneous MQTT uplinks.
+
+**T-LoRa V2.1–1.6 MQTT observer — no OTA:** the observer image (~2.4 MB) cannot fit two OTA slots in this board's 4 MB flash, so these envs use `huge_app.csv`: one 3 MB app slot, no second slot. `ota update` and `start ota` refuse with a cable-flash message; **every update goes over USB**. Coming from a `min_spiffs` build, flash the `*-merged.bin` (or erase first) so the new partition table is written.
 
 **Heltec V2 MQTT observer — one WSS broker:** the Heltec WiFi LoRa 32 V2 is also **classic ESP32 without PSRAM**, so the same one-active-preset guidance applies. Its 8 MB flash fits the image in the board's default `default_8MB.csv` layout, so no partition change or erase is needed.
 
@@ -253,8 +255,8 @@ Some MQTT observer builds use a non-default partition table to accommodate the l
 |-------------|----------------|------------|---------------|-------|
 | `LilyGo_T3S3_sx1262_repeater_observer_mqtt` | `min_spiffs.csv` | 4 MB | 1.875 MB | Changed from default (1.25 MB) |
 | `LilyGo_T3S3_sx1262_room_server_observer_mqtt` | `min_spiffs.csv` | 4 MB | 1.875 MB | Changed from default (1.25 MB) |
-| `LilyGo_TLora_V2_1_1_6_repeater_observer_mqtt` | `min_spiffs.csv` | 4 MB | 1.875 MB | TTGO LoRa32 V1.0; observer omits `sensor_base`. See the one-WSS-broker note above. |
-| `LilyGo_TLora_V2_1_1_6_room_server_observer_mqtt` | `min_spiffs.csv` | 4 MB | 1.875 MB | same |
+| `LilyGo_TLora_V2_1_1_6_repeater_observer_mqtt` | `huge_app.csv` | 4 MB | 3 MB (single slot) | TTGO LoRa32 V1.0; **no OTA**, USB updates only. See the T-LoRa notes above. |
+| `LilyGo_TLora_V2_1_1_6_room_server_observer_mqtt` | `huge_app.csv` | 4 MB | 3 MB (single slot) | same |
 | `Station_G2_repeater_observer_mqtt` | `default_16MB.csv` | 16 MB | 6.25 MB | 16 MB flash board |
 | `Station_G2_room_server_observer_mqtt` | `default_16MB.csv` | 16 MB | 6.25 MB | 16 MB flash board |
 | `Station_G3_ESP32_repeater_observer_mqtt` | `default_16MB.csv` | 16 MB | 6.25 MB | 16 MB flash board |
