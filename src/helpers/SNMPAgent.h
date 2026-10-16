@@ -10,7 +10,7 @@
 #define MESHCORE_OID_BASE ".1.3.6.1.4.1.99999"
 
 // OID layout:
-//   .1.x.0  = system   (uptime, version, node name)
+//   .1.x.0  = system   (uptime, version, node name, battery)
 //   .2.x.0  = radio    (packets, RSSI, SNR, noise floor, air time)
 //   .3.x.0  = mqtt     (connected slots, queue depth, skipped publishes)
 //   .4.x.0  = memory   (free heap, max alloc, internal free, PSRAM free)
@@ -32,6 +32,10 @@ public:
 
   void updateMQTTStats(int connected_slots, int queue_depth, int skipped_publishes);
 
+  // Battery voltage in millivolts, 0 when the board cannot measure it. Pushed from the
+  // mesh task with the radio stats, so the ADC is only ever read from Core 1.
+  void updateBattery(uint16_t battery_mv);
+
   void setNodeName(const char* name);
   void setFirmwareVersion(const char* version);
 
@@ -46,6 +50,7 @@ private:
   int _uptime_secs;
   char _firmware_version[32];
   char _node_name[32];
+  int _battery_mv;
 
   // Radio OIDs
   int _packets_recv;

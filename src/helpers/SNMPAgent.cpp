@@ -11,6 +11,7 @@ MeshSNMPAgent::MeshSNMPAgent()
   : _snmp("public"),
     _running(false),
     _uptime_secs(0),
+    _battery_mv(0),
     _packets_recv(0), _packets_sent(0), _recv_errors(0),
     _noise_floor(0), _last_rssi(0), _last_snr(0),
     _sent_flood(0), _sent_direct(0), _recv_flood(0), _recv_direct(0),
@@ -34,6 +35,7 @@ void MeshSNMPAgent::begin(const char* community) {
   _snmp.addIntegerHandler(MESHCORE_OID_BASE ".1.1.0", &_uptime_secs);
   _snmp.addReadOnlyStaticStringHandler(MESHCORE_OID_BASE ".1.2.0", _firmware_version, sizeof(_firmware_version));
   _snmp.addReadOnlyStaticStringHandler(MESHCORE_OID_BASE ".1.3.0", _node_name, sizeof(_node_name));
+  _snmp.addIntegerHandler(MESHCORE_OID_BASE ".1.4.0", &_battery_mv);
 
   // Radio group (.2.x.0)
   _snmp.addIntegerHandler(MESHCORE_OID_BASE ".2.1.0", &_packets_recv);
@@ -109,6 +111,10 @@ void MeshSNMPAgent::updateMQTTStats(int connected_slots, int queue_depth, int sk
   _mqtt_connected_slots = connected_slots;
   _mqtt_queue_depth = queue_depth;
   _mqtt_skipped_publishes = skipped_publishes;
+}
+
+void MeshSNMPAgent::updateBattery(uint16_t battery_mv) {
+  _battery_mv = (int)battery_mv;
 }
 
 void MeshSNMPAgent::setNodeName(const char* name) {

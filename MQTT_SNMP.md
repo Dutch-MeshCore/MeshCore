@@ -43,6 +43,7 @@ All OIDs are under the private enterprise subtree `1.3.6.1.4.1.99999` (`.iso.org
 | `.1.1.0` | INTEGER | System uptime (seconds) |
 | `.1.2.0` | STRING | Firmware version |
 | `.1.3.0` | STRING | Node name |
+| `.1.4.0` | INTEGER | Battery voltage (mV), 0 when the board cannot measure it |
 
 ### Radio (.2.x.0)
 
@@ -91,6 +92,7 @@ $ snmpwalk -v2c -c public 192.168.50.95 1.3.6.1.4.1.99999
 SNMPv2-SMI::enterprises.99999.1.1.0 = INTEGER: 18        # uptime 18s
 SNMPv2-SMI::enterprises.99999.1.2.0 = STRING: "v1.14.1"  # firmware
 SNMPv2-SMI::enterprises.99999.1.3.0 = STRING: "Heltec Repeater"
+SNMPv2-SMI::enterprises.99999.1.4.0 = INTEGER: 4105      # battery 4.105 V
 SNMPv2-SMI::enterprises.99999.2.1.0 = INTEGER: 3         # 3 packets received
 SNMPv2-SMI::enterprises.99999.2.4.0 = INTEGER: -96       # noise floor -96 dBm
 SNMPv2-SMI::enterprises.99999.2.5.0 = INTEGER: -25       # last RSSI -25 dBm

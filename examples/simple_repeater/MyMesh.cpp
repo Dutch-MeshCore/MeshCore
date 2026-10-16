@@ -2269,6 +2269,7 @@ void MyMesh::loop() {
         getNumSentFlood(), getNumSentDirect(),
         getNumRecvFlood(), getNumRecvDirect(),
         getTotalAirTime() / 1000, uptime_millis / 1000);
+      _snmp_agent.updateBattery(board.getBattMilliVolts());
     }
   }
 #endif
