@@ -187,8 +187,8 @@ automatically. Non-PSRAM boards opt in per variant with
 (Heltec V3/WSL3, RAK3112, Heltec Tracker v1.1/v2). It costs ~7.4 KB of static DRAM
 (~9.6 KB on room servers) and up to ~13 KB transiently per publish, and caps the
 table at 20 entries — so the feature is deliberately **not** enabled on the classic
-ESP32 T-LoRa V2.1–1.6 observer builds, which are already down to one active TLS
-slot. Publishing peaks while the table is built, so keep the slot guidance above
+ESP32 T-LoRa V2.1–1.6 and Heltec V2 observer builds, which are already down to one
+active TLS slot. Publishing peaks while the table is built, so keep the slot guidance above
 in mind: the peak lands on the same internal heap the TLS stack draws from.
 
 ## Build Configuration
@@ -196,6 +196,10 @@ in mind: the peak lands on the same internal heap the TLS stack draws from.
 To build the MQTT bridge firmware:
 
 ```bash
+# Heltec V2 (classic ESP32, no PSRAM)
+pio run -e Heltec_v2_repeater_observer_mqtt
+pio run -e Heltec_v2_room_server_observer_mqtt
+
 # Heltec V3
 pio run -e Heltec_v3_repeater_observer_mqtt
 
@@ -238,6 +242,8 @@ builds get neighbors publication (`WITH_MQTT_NEIGHBORS`) automatically.
 **TLora naming:** The env prefix `LilyGo_TLora_V2_1_1_6` is LilyGo’s **T-LoRa V2.1–1.6** board (SX1276); PlatformIO selects **`ttgo-lora32-v1`** (TTGO LoRa32 V1.0). **MQTT observer** envs extend a slim base **without** `sensor_base` so the image fits `min_spiffs`; **all other** `LilyGo_TLora_V2_1_1_6_*` targets still use optional I2C environmental sensors as before. The **`lilygo_tlora_c6`** variant is separate hardware (ESP32-C6).
 
 **T-LoRa V2.1–1.6 MQTT observer — one WSS broker:** This hardware is **classic ESP32 without PSRAM**. Each WSS preset uses a full TLS stack and large contiguous heap allocations; **two active broker presets at once** typically fails the second connection (`mbedtls_ssl_setup` / `esp-tls` `0x8017`, low `IntMax` in `memory`). **Treat these observer builds as supporting one active cloud preset:** configure the broker you need in `mqtt1` or `mqtt2`, and set the other slot to `none` (e.g. `set mqtt2.preset none`). Use PSRAM-capable boards if you need multiple simultaneous MQTT uplinks.
+
+**Heltec V2 MQTT observer — one WSS broker:** the Heltec WiFi LoRa 32 V2 is also **classic ESP32 without PSRAM**, so the same one-active-preset guidance applies. Its 8 MB flash fits the image in the board's default `default_8MB.csv` layout, so no partition change or erase is needed.
 
 ### Partition Table Changes — Merged Firmware Required
 
