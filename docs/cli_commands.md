@@ -10,6 +10,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - [Logging](#logging)
 - [Information](#info)
 - [Packet Filter](#packet-filter-repeater-only)
+- [Companion Receive Filter](#companion-receive-filter-companion-only)
 - [Configuration](#configuration)
   - [Radio](#radio)
   - [System](#system)
@@ -320,6 +321,28 @@ filter stats hops
 - `filter malformed off`
 
 **Note:** When enabled, group-text packets on the public channel are decrypted and dropped if their content is not valid UTF-8. `filter stats malformed` splits the drops by rejection reason.
+
+---
+
+## Companion Receive Filter (Companion Only)
+
+The DMC companion firmware has its own `filter` command that keeps junk and unwanted channel messages out of the app. It is sent through the app's command console (`CMD_RUN_CLI_COMMAND`), USB serial, or remote CLI. Settings are persisted to `/cfilter.json`. Disabled by default; direct and addressed traffic is never filtered.
+
+Find more information in [companion_filter_reference.md](companion_filter_reference.md)
+
+**Usage:**
+- `filter` — status: `> Filter on: Hidden [ Malformed: N | Age: N | Path: N | Sender: N | Text: N ]`
+- `filter help`
+- `filter on` / `filter off`
+- `filter reset` — restore the defaults (counters are not affected)
+- `filter malformed` / `filter malformed <on|off>` — drop group text with a bad timestamp, empty text or invalid UTF-8, on every channel the companion holds
+- `filter age` / `filter age <minutes>|off` — drop group text older than this (1–10080)
+- `filter path list|add|remove <hex>` — drop flood adverts and group traffic relayed by a repeater whose ID starts with the prefix (2–8 hex digits, up to 8)
+- `filter sender list|add <name> [secs] [prob]|remove <name>` — hide group text by sender (up to 8; `Bot*` = prefix)
+- `filter text list|add <pattern> [secs] [prob]|remove <pattern>` — hide group text by content (up to 8; `^` = start of message)
+- `filter stats malformed|age|path|sender|text` — what each setting filtered, in the same formats as the repeater filter
+
+**Note:** Malformed, age and path filtering *drop* a packet: with repeat enabled it is not repeated either. Sender and text rules only *hide* it: it is still repeated for others.
 
 ---
 

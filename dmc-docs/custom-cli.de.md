@@ -48,6 +48,25 @@ ACL-Kontaktpakete werden übersprungen. Der Zustand wird in `/filter_prefs` gesp
 | `04` | ADVERT | `10` | MULTIPART |
 | `05` | GRP_TXT | `11` | CONTROL |
 
+## Companion-Filter
+
+`filter ...` auf der **Companion**-Firmware: blendet Müll und unerwünschte Kanalnachrichten in der
+App aus. Wird über die Befehlskonsole der App, USB-Seriell oder Remote-CLI gesendet. Standardmäßig
+**aus**; Direktnachrichten werden nie gefiltert. Gespeichert in `/cfilter.json`. Siehe
+[`docs/companion_filter_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_filter_reference.md).
+
+- `filter`: Status und Summen pro Grund
+- `filter help` / `filter on` / `filter off` / `filter reset`
+- `filter malformed on|off` (falscher Zeitstempel, leerer Text oder ungültiges UTF-8, auf jedem eigenen Kanal)
+- `filter age <Minuten>|off` (1-10080; Gruppennachrichten, die älter sind)
+- `filter path list|add|remove <hex>` (bis zu 8; Adverts und Gruppenverkehr über diesen Repeater)
+- `filter sender add <Name> [secs] [prob]` / `remove` / `list` (bis zu 8; `Bot*` = Präfix)
+- `filter text add <Muster> [secs] [prob]` / `remove` / `list` (bis zu 8; `^` = Anfang der Nachricht)
+- `filter stats malformed|age|path|sender|text`
+
+Mit aktiviertem Repeat werden malformed/age/path-Nachrichten auch nicht weitergeleitet;
+sender/text-Regeln blenden eine Nachricht nur für dich aus, sie wird für andere weiterhin weitergeleitet.
+
 ## Duty-Cycle-Region-Gating
 
 `dc.gate.*`. Standardmäßig **aus**. Wirft Inter-Regions-Flood-Verkehr ab, wenn der

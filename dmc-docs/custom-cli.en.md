@@ -47,6 +47,25 @@ packets bypass it. State is persisted to `/filter_prefs`.
 | `04` | ADVERT | `10` | MULTIPART |
 | `05` | GRP_TXT | `11` | CONTROL |
 
+## Companion filter
+
+`filter ...` on the **companion** firmware: hides junk and unwanted channel messages from the
+app. Sent from the app's command console, USB serial or remote CLI. **Off** by default; direct
+messages are never filtered. Saved to `/cfilter.json`. See
+[`docs/companion_filter_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_filter_reference.md).
+
+- `filter`: status and per-reason totals
+- `filter help` / `filter on` / `filter off` / `filter reset`
+- `filter malformed on|off` (bad timestamp, empty text or invalid UTF-8, on every channel you hold)
+- `filter age <minutes>|off` (1-10080; group text older than this)
+- `filter path list|add|remove <hex>` (up to 8; adverts and group traffic relayed by that repeater)
+- `filter sender add <name> [secs] [prob]` / `remove` / `list` (up to 8; `Bot*` = prefix)
+- `filter text add <pattern> [secs] [prob]` / `remove` / `list` (up to 8; `^` = start of message)
+- `filter stats malformed|age|path|sender|text`
+
+With repeat enabled, malformed/age/path messages are not repeated either; sender/text rules only
+hide a message from you and it is still repeated for others.
+
 ## Duty-cycle region gating
 
 `dc.gate.*`. **Off** by default. Sheds inter-region flood traffic when the repeater has

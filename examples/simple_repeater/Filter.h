@@ -10,6 +10,7 @@
 #include "FilterStats.h"
 #include "Limiter.h"
 #include "MessageAge.h"
+#include "MessageContent.h"
 #include "PathBlock.h"
 #include "SenderRules.h"
 

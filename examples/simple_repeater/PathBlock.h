@@ -59,6 +59,45 @@ namespace FilterPath {
     }
   }
 
+  // CLI add / remove. `formatted` (2 * FILTER_PATH_MAX_LEN + 1 bytes) receives
+  // the canonical upper-case prefix, or "" when `hex` did not parse, so the
+  // caller can tell a bad prefix from a duplicate, a full list or a missing one.
+  inline bool add(PathPrefix* list, int count, const char* hex, char* formatted) {
+    formatted[0] = '\0';
+    PathPrefix p;
+    if (!parse(hex, &p)) return false;
+    format(formatted, 2 * FILTER_PATH_MAX_LEN + 1, p);
+
+    int free_slot = -1;
+    for (int i = 0; i < count; i++) {
+      PathPrefix& cur = list[i];
+      if (cur.len == 0) {
+        if (free_slot < 0) free_slot = i;
+      } else if (cur.len == p.len && memcmp(cur.bytes, p.bytes, p.len) == 0) {
+        return false;   // already blocked
+      }
+    }
+    if (free_slot < 0) return false;
+    list[free_slot] = p;
+    return true;
+  }
+
+  inline bool remove(PathPrefix* list, int count, const char* hex, char* formatted) {
+    formatted[0] = '\0';
+    PathPrefix p;
+    if (!parse(hex, &p)) return false;
+    format(formatted, 2 * FILTER_PATH_MAX_LEN + 1, p);
+
+    for (int i = 0; i < count; i++) {
+      PathPrefix& cur = list[i];
+      if (cur.len == p.len && memcmp(cur.bytes, p.bytes, p.len) == 0) {
+        memset(&cur, 0, sizeof(cur));
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Index of the first prefix that matches the start of any path entry, or -1.
   // A prefix longer than the packet's hash size never matches: A1B2 is one
   // 2-byte ID, not the two 1-byte IDs A1 then B2.

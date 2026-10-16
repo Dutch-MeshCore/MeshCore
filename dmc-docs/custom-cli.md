@@ -48,6 +48,25 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
 | `04` | ADVERT | `10` | MULTIPART |
 | `05` | GRP_TXT | `11` | CONTROL |
 
+## Companion filter
+
+`filter ...` op de **companion**-firmware: verbergt rommel en ongewenste kanaalberichten voor de
+app. Te versturen via de commandoconsole van de app, USB-serieel of remote CLI. Standaard **uit**;
+directe berichten worden nooit gefilterd. Opgeslagen in `/cfilter.json`. Zie
+[`docs/companion_filter_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_filter_reference.md).
+
+- `filter`: status en totalen per reden
+- `filter help` / `filter on` / `filter off` / `filter reset`
+- `filter malformed on|off` (foute tijdstempel, lege tekst of ongeldige UTF-8, op elk kanaal dat je hebt)
+- `filter age <minuten>|off` (1-10080; groepsberichten ouder dan dit)
+- `filter path list|add|remove <hex>` (max. 8; adverts en groepsverkeer via die repeater)
+- `filter sender add <naam> [secs] [prob]` / `remove` / `list` (max. 8; `Bot*` = prefix)
+- `filter text add <patroon> [secs] [prob]` / `remove` / `list` (max. 8; `^` = begin van het bericht)
+- `filter stats malformed|age|path|sender|text`
+
+Met repeat aan worden malformed/age/path-berichten ook niet doorgestuurd; sender/text-regels
+verbergen een bericht alleen voor jou en het wordt nog steeds doorgestuurd voor anderen.
+
 ## Duty-cycle region gating
 
 `dc.gate.*`. Standaard **uit**. Werpt inter-regio-floodverkeer af wanneer de repeater

@@ -126,6 +126,63 @@ namespace FilterRules {
     return -1;
   }
 
+  // ---- list editing (CLI add / remove) ----------------------------------------
+
+  inline char* patternBuf(SenderRule& r) { return r.name; }
+  inline char* patternBuf(TextRule& r) { return r.text; }
+  inline size_t patternMax(const SenderRule&) { return FILTER_SENDER_LEN - 1; }
+  inline size_t patternMax(const TextRule&) { return FILTER_TEXT_LEN - 1; }
+
+  // Stores a rule in the first free slot. Fails on an empty or over-long
+  // pattern, a pattern already present, or a full list.
+  template <typename Rule>
+  inline bool addRule(Rule* rules, int count, const char* pattern, uint16_t secs, uint8_t prob) {
+    if (rules == nullptr || count <= 0) return false;
+    size_t max_len = patternMax(rules[0]);
+    if (pattern == nullptr || pattern[0] == '\0' || strlen(pattern) > max_len) return false;
+
+    int free_slot = -1;
+    for (int i = 0; i < count; i++) {
+      char* pat = patternBuf(rules[i]);
+      if (pat[0] == '\0') {
+        if (free_slot < 0) free_slot = i;
+      } else if (strcmp(pat, pattern) == 0) {
+        return false;   // already present
+      }
+    }
+    if (free_slot < 0) return false;
+
+    Rule& r = rules[free_slot];
+    memset(&r, 0, sizeof(r));
+    strncpy(patternBuf(r), pattern, max_len);
+    r.secs = secs;
+    r.prob = prob;
+    return true;
+  }
+
+  // Clears the rule with exactly this pattern. Returns its slot, so the caller
+  // can reset per-slot state, or -1 when there is none.
+  template <typename Rule>
+  inline int removeRule(Rule* rules, int count, const char* pattern) {
+    if (rules == nullptr || pattern == nullptr || pattern[0] == '\0') return -1;
+    for (int i = 0; i < count; i++) {
+      if (strcmp(patternBuf(rules[i]), pattern) == 0) {
+        memset(&rules[i], 0, sizeof(Rule));
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  template <typename Rule>
+  inline bool anyRule(const Rule* rules, int count) {
+    if (rules == nullptr) return false;
+    for (int i = 0; i < count; i++) {
+      if (patternOf(rules[i])[0] != '\0') return true;
+    }
+    return false;
+  }
+
   inline bool parseUint(const char* s, long max, long* out) {
     if (s == nullptr || s[0] == '\0') return false;
     for (const char* p = s; *p; p++) {
