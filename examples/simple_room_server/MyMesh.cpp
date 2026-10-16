@@ -1785,25 +1785,50 @@ void MyMesh::loop() {
 #endif
 
 #ifdef WITH_SNMP
-  // Push radio stats to SNMP agent every 2 seconds
-  if (_snmp_agent.isRunning()) {
-    static unsigned long last_snmp_stats = 0;
-    if (now - last_snmp_stats >= 2000) {
-      last_snmp_stats = now;
-      _snmp_agent.updateRadioStats(
-        radio_driver.getPacketsRecv(), radio_driver.getPacketsSent(),
-        radio_driver.getPacketsRecvErrors(),
-        (int16_t)_radio->getNoiseFloor(),
-        (int16_t)radio_driver.getLastRSSI(),
-        (int16_t)(radio_driver.getLastSNR() * 4),
-        getNumSentFlood(), getNumSentDirect(),
-        getNumRecvFlood(), getNumRecvDirect(),
-        getTotalAirTime() / 1000, uptime_millis / 1000);
-      _snmp_agent.updateBattery(board.getBattMilliVolts());
-    }
-  }
+  if (_snmp_agent.isRunning()) pushSNMPStats(now);
 #endif
 }
+
+#ifdef WITH_SNMP
+// Counters every 2 s; battery and MCU temperature every 30 s, because some boards
+// block on the ADC read (Heltec V4 waits 10 ms) and neither value moves quickly.
+void MyMesh::pushSNMPStats(uint32_t now) {
+  static uint32_t last_snmp_stats = 0;
+  static uint32_t last_snmp_health = 0;
+  static bool health_pushed = false;
+
+  if (!health_pushed || now - last_snmp_health >= 30000) {
+    health_pushed = true;
+    last_snmp_health = now;
+    _snmp_agent.updateBattery(board.getBattMilliVolts());
+    _snmp_agent.updateMcuTemperature(board.getMCUTemperature());
+  }
+
+  if (now - last_snmp_stats < 2000) return;
+  last_snmp_stats = now;
+
+  _snmp_agent.updateRadioStats(
+    radio_driver.getPacketsRecv(), radio_driver.getPacketsSent(),
+    radio_driver.getPacketsRecvErrors(),
+    (int16_t)_radio->getNoiseFloor(),
+    (int16_t)radio_driver.getLastRSSI(),
+    (int16_t)(radio_driver.getLastSNR() * 4),
+    getNumSentFlood(), getNumSentDirect(),
+    getNumRecvFlood(), getNumRecvDirect(),
+    getTotalAirTime() / 1000, uptime_millis / 1000);
+
+  int neighbour_count = 0;
+  for (int i = 0; i < MAX_NEIGHBOURS; i++) {
+    if (neighbours[i].heard_timestamp > 0) neighbour_count++;
+  }
+  _snmp_agent.updateMeshStats(
+    _mgr->getOutboundCount(0xFFFFFFFF),
+    ((SimpleMeshTables *)getTables())->getNumFloodDups(),
+    ((SimpleMeshTables *)getTables())->getNumDirectDups(),
+    getReceiveAirTime() / 1000, getTxDutyCyclePercent(), _err_flags,
+    neighbour_count);
+}
+#endif
 
 #if defined(WITH_MQTT_NEIGHBORS)
 #include "helpers/MQTTMessageBuilder.h"

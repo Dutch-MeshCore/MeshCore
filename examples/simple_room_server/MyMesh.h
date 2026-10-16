@@ -212,6 +212,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
 #endif
 #ifdef WITH_SNMP
   MeshSNMPAgent _snmp_agent;
+  void pushSNMPStats(uint32_t now);   // mesh task: copy stats into the SNMP agent
 #endif
 #ifdef WITH_MQTT_BRIDGE
   AlertReporter _alerter;
@@ -398,6 +399,8 @@ public:
       if (_cli.getObserverPrefs()->snmp_enabled) {
         _snmp_agent.setNodeName(_prefs.node_name);
         _snmp_agent.setFirmwareVersion(getFirmwareVer());
+        uint32_t reset_reason = _cli.getBoard()->getResetReason();
+        _snmp_agent.setResetReason(reset_reason, _cli.getBoard()->getResetReasonString(reset_reason));
         bridge->setSNMPAgent(&_snmp_agent);
       }
 #endif

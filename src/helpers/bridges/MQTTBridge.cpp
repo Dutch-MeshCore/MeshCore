@@ -1619,7 +1619,7 @@ void MQTTBridge::mqttTaskLoop() {
         for (int i = 0; i < RUNTIME_MQTT_SLOTS; i++) {
           if (_slots[i].enabled && _slots[i].connected) connected++;
         }
-        _snmp_agent->updateMQTTStats(connected, _queue_count, _skipped_publishes);
+        _snmp_agent->updateMQTTStats(connected, _queue_count, _skipped_publishes, _ntp_synced);
         _snmp_agent->loop();
       }
     }
