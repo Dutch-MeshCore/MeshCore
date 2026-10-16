@@ -117,6 +117,10 @@ static bool otaCommand(CompanionNetPrefs& prefs, DataStore& store, const char* c
   (void)prefs; (void)store; (void)command;
   strcpy(reply, "Error: OTA needs a Wi-Fi build (*_companion_radio_wifi)");
   return true;
+#elif defined(DMC_COMPANION_NO_OTA)
+  (void)prefs; (void)store; (void)command;
+  strcpy(reply, "Error: no OTA on 4 MB flash boards, update over USB");
+  return true;
 #elif !defined(DMC_COMPANION_OTA)
   (void)prefs; (void)store; (void)command;
   strcpy(reply, "Error: OTA not configured (build with build.sh)");

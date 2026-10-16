@@ -79,7 +79,7 @@ ESP32 `*_companion_radio_ble`-boards met wifi). Opgeslagen in `/cnet.json`. Zie
 - `ota branch` / `ota branch stable|dev|default`
 - `get mac` / `get wifi.mac` / `get ble.mac` (elke ESP32-build)
 
-Een nieuwe partitietabel, of een board zonder tweede app-slot, heeft nog steeds een USB-flash nodig.
+Geen OTA op boards met 4 MB flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1). Een nieuwe partitietabel, of een board zonder tweede app-slot, heeft nog steeds een USB-flash nodig.
 
 ## Duty-cycle region gating
 

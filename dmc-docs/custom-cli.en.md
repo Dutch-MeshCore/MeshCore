@@ -78,7 +78,7 @@ On **companion** builds that can join Wi-Fi (ESP32 `*_companion_radio_wifi`, and
 - `ota branch` / `ota branch stable|dev|default`
 - `get mac` / `get wifi.mac` / `get ble.mac` (every ESP32 build)
 
-A new partition table, or a board without a second app slot, still needs a USB flash.
+No OTA on 4 MB flash boards (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1). A new partition table, or a board without a second app slot, still needs a USB flash.
 
 ## Duty-cycle region gating
 

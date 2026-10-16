@@ -25,9 +25,13 @@ SNMP and OTA need a Wi-Fi network, so they exist on ESP32 builds that can join o
 | Build | SNMP | OTA | MAC |
 | --- | --- | --- | --- |
 | ESP32 `*_companion_radio_wifi` | yes | yes | yes |
+| ESP32 `*_companion_radio_wifi` with 4 MB flash (ThinkNode M2, ThinkNode M5, Xiao C3, LilyGo T-LoRa V2.1) | yes | no | yes |
 | ESP32 `*_companion_radio_ble` with Wi-Fi (Heltec V3, WSL3, V4, V4 R8, Wireless Paper, RAK3112, ThinkNode M7, Xiao S3, Xiao S3 WIO) | yes | yes | yes |
 | Other ESP32 `*_companion_radio_ble` | no | no | yes |
 | nRF52, RP2040 | no | no | `n/a` |
+
+OTA needs a TLS stack (~180 KB of flash) that the 4 MB boards have no room for, so
+they set `DMC_COMPANION_NO_OTA` and are updated over USB.
 
 On the BLE builds with Wi-Fi, Wi-Fi is off until it is set up:
 `set wifi.ssid <name>`, `set wifi.pwd <password>`, `set wifi.enabled 1` (a number:

@@ -15,7 +15,10 @@
 #endif
 
 // build.sh bakes the server bases and the variant (the PlatformIO env name) in.
-#if defined(DMC_COMPANION_WIFI) && defined(COMPANION_OTA_VARIANT) && defined(COMPANION_OTA_BASE) && \
+// Boards with 4 MB flash set DMC_COMPANION_NO_OTA: the TLS stack the download
+// needs (~180 KB) leaves them no headroom.
+#if defined(DMC_COMPANION_WIFI) && !defined(DMC_COMPANION_NO_OTA) && \
+    defined(COMPANION_OTA_VARIANT) && defined(COMPANION_OTA_BASE) && \
     defined(COMPANION_OTA_BASE_STABLE) && defined(COMPANION_OTA_BASE_DEV)
   #define DMC_COMPANION_OTA 1
 #endif

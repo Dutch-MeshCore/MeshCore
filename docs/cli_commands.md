@@ -363,7 +363,7 @@ Find more information in [companion_snmp_ota_reference.md](companion_snmp_ota_re
 - `ota branch` / `ota branch <stable|dev|default>` — the OTA channel
 - `get mac` / `get wifi.mac` / `get ble.mac` — factory MAC addresses (every ESP32 build; `n/a` elsewhere)
 
-**Note:** An update with a different partition table, or on a board without a second app slot, needs a USB flash.
+**Note:** An update with a different partition table, or on a board without a second app slot, needs a USB flash. Boards with 4 MB flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1) have no OTA.
 
 ---
 

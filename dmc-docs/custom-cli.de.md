@@ -79,7 +79,7 @@ die ESP32-`*_companion_radio_ble`-Boards mit WLAN). Gespeichert in `/cnet.json`.
 - `ota branch` / `ota branch stable|dev|default`
 - `get mac` / `get wifi.mac` / `get ble.mac` (jeder ESP32-Build)
 
-Eine neue Partitionstabelle oder ein Board ohne zweiten App-Slot braucht weiterhin einen USB-Flash.
+Kein OTA auf Boards mit 4 MB Flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1). Eine neue Partitionstabelle oder ein Board ohne zweiten App-Slot braucht weiterhin einen USB-Flash.
 
 ## Duty-Cycle-Region-Gating
 
