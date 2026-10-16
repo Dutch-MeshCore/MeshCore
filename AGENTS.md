@@ -31,7 +31,7 @@ upstream project and are wrong here on three points:
 | "Reference any related issue (`Fixes #123`)" | Not possible while issues are disabled. |
 
 **In practice this fork is a set of repeater airtime-control features** layered on the upstream
-base (currently synced to `mc/dev`, embedded firmware version `v1.17.1.01`):
+base (currently synced to upstream `v1.18.0`, embedded firmware version `v1.18.0.01`):
 
 - the **repeater packet filter** — `examples/simple_repeater/Filter.{cpp,h}` plus header-only
   `FilterStats.h` / `Limiter.h` (drop statistics + probabilistic soft cutoff);

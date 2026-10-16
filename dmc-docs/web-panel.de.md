@@ -50,6 +50,8 @@ ohne manuellen Upload:
 - `ota branch default`: Kanal-Override löschen.
 - `ota update`: verfügbare Build herunterladen und flashen.
 
+Der Node meldet die Kanäle als `beta` (= `dev`) und `prod` (= `stable`); `ota branch beta` und `ota branch prod` funktionieren ebenfalls.
+
 Diese `ota`-Befehle sind nur auf Observer-Builds verfügbar.
 
 ## Hinweise
