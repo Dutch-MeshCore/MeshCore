@@ -5,8 +5,11 @@
 #include "MyMesh.h"
 #include "MeshcomodPrefs.h"
 
+// The IDF NVS API, not Arduino's Preferences: PlatformIO's library finder does not
+// see the #if, and on RP2040 a framework library (iLabs Hearth) ships its own
+// Preferences.h that then gets built and fails.
 #if defined(ESP32) && defined(ENABLE_WIFI_INTERFACE)
-  #include <Preferences.h>
+  #include <nvs.h>
 #endif
 
 void importMeshcomodSettings(NodePrefs& prefs, DataStore& store) {
@@ -44,13 +47,15 @@ void importMeshcomodSettings(NodePrefs& prefs, DataStore& store) {
 #if defined(ESP32) && defined(ENABLE_WIFI_INTERFACE)
   // meshcomod's runtime Wi-Fi credentials (WifiRuntimeStore: NVS "meshcomod").
   // NVS survives an app-only flash; read-only, so meshcomod's copy stays intact.
-  Preferences nvs;
-  if (nvs.begin("meshcomod", true)) {
+  nvs_handle_t nvs;
+  if (nvs_open("meshcomod", NVS_READONLY, &nvs) == ESP_OK) {
     char ssid[sizeof(prefs.wifi_ssid)] = { 0 };
     char pwd[sizeof(prefs.wifi_pwd)] = { 0 };
-    nvs.getString("wifi_ssid", ssid, sizeof(ssid));
-    nvs.getString("wifi_pwd", pwd, sizeof(pwd));
-    nvs.end();
+    size_t n = sizeof(ssid);
+    if (nvs_get_str(nvs, "wifi_ssid", ssid, &n) != ESP_OK) ssid[0] = 0;   // missing or too long
+    n = sizeof(pwd);
+    if (nvs_get_str(nvs, "wifi_pwd", pwd, &n) != ESP_OK) pwd[0] = 0;
+    nvs_close(nvs);
     if (MeshcomodPrefs::shouldImportWifi(prefs.wifi_ssid, ssid)) {
       memcpy(prefs.wifi_ssid, ssid, sizeof(prefs.wifi_ssid));
       memcpy(prefs.wifi_pwd, pwd, sizeof(prefs.wifi_pwd));
