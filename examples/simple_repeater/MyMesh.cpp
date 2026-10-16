@@ -1263,6 +1263,9 @@ void MyMesh::begin(FILESYSTEM *fs) {
       if (_cli.getObserverPrefs()->snmp_enabled) {
         _snmp_agent.setNodeName(_prefs.node_name);
         _snmp_agent.setFirmwareVersion(getFirmwareVer());
+        uint32_t reset_reason = board.getResetReason();
+        _snmp_agent.setResetReason(reset_reason, board.getResetReasonString(reset_reason));
+        _snmp_agent.enableRepeaterGroups();   // duty gate + filter
         bridge->setSNMPAgent(&_snmp_agent);
       }
 #endif
@@ -2255,24 +2258,78 @@ void MyMesh::loop() {
 #endif
 
 #ifdef WITH_SNMP
-  // Push radio stats to SNMP agent every 2 seconds
-  if (_snmp_agent.isRunning()) {
-    static unsigned long last_snmp_stats = 0;
-    if (now - last_snmp_stats >= 2000) {
-      last_snmp_stats = now;
-      _snmp_agent.updateRadioStats(
-        radio_driver.getPacketsRecv(), radio_driver.getPacketsSent(),
-        radio_driver.getPacketsRecvErrors(),
-        (int16_t)_radio->getNoiseFloor(),
-        (int16_t)radio_driver.getLastRSSI(),
-        (int16_t)(radio_driver.getLastSNR() * 4),
-        getNumSentFlood(), getNumSentDirect(),
-        getNumRecvFlood(), getNumRecvDirect(),
-        getTotalAirTime() / 1000, uptime_millis / 1000);
-    }
-  }
+  if (_snmp_agent.isRunning()) pushSNMPStats(now);
 #endif
 }
+
+#ifdef WITH_SNMP
+static uint32_t snmpSatAdd(uint32_t a, uint32_t b) {
+  return a > 0xFFFFFFFFu - b ? 0xFFFFFFFFu : a + b;   // filter counters saturate, so the sum does too
+}
+
+// Counters every 2 s; battery and MCU temperature every 30 s, because some boards
+// block on the ADC read (Heltec V4 waits 10 ms) and neither value moves quickly.
+void MyMesh::pushSNMPStats(uint32_t now) {
+  static uint32_t last_snmp_stats = 0;
+  static uint32_t last_snmp_health = 0;
+  static bool health_pushed = false;
+
+  if (!health_pushed || now - last_snmp_health >= 30000) {
+    health_pushed = true;
+    last_snmp_health = now;
+    _snmp_agent.updateBattery(board.getBattMilliVolts());
+    _snmp_agent.updateMcuTemperature(board.getMCUTemperature());
+  }
+
+  if (now - last_snmp_stats < 2000) return;
+  last_snmp_stats = now;
+
+  _snmp_agent.updateRadioStats(
+    radio_driver.getPacketsRecv(), radio_driver.getPacketsSent(),
+    radio_driver.getPacketsRecvErrors(),
+    (int16_t)_radio->getNoiseFloor(),
+    (int16_t)radio_driver.getLastRSSI(),
+    (int16_t)(radio_driver.getLastSNR() * 4),
+    getNumSentFlood(), getNumSentDirect(),
+    getNumRecvFlood(), getNumRecvDirect(),
+    getTotalAirTime() / 1000, uptime_millis / 1000);
+
+  int neighbour_count = 0;
+#if MAX_NEIGHBOURS
+  for (int i = 0; i < MAX_NEIGHBOURS; i++) {
+    if (neighbours[i].heard_timestamp > 0) neighbour_count++;
+  }
+#endif
+  _snmp_agent.updateMeshStats(
+    _mgr->getOutboundCount(0xFFFFFFFF),
+    ((SimpleMeshTables *)getTables())->getNumFloodDups(),
+    ((SimpleMeshTables *)getTables())->getNumDirectDups(),
+    getReceiveAirTime() / 1000, getTxDutyCyclePercent(), _err_flags,
+    neighbour_count);
+
+  _snmp_agent.updateDutyGate(_prefs.dc_gate_enabled != 0, dc_gate_level, region_map.getMaxGateLevel(),
+                             _prefs.dc_gate_threshold, _prefs.dc_gate_hysteresis);
+
+  const Counters& c = _filter.getCounters();
+  SNMPFilterTotals t;
+  t.enabled = _filter.isEnabled();
+  t.dryrun = _filter.getPrefs().dryrun != 0;
+  for (int i = 0; i < PAYLOAD_TYPE_COUNT; i++) {
+    t.hops = snmpSatAdd(t.hops, c.hops[i]);
+    t.rate = snmpSatAdd(t.rate, c.rate[i]);
+  }
+  t.channel = c.channel;
+  t.hash = c.hash;
+  t.malformed = c.malformed;
+  t.advert = c.advert;
+  t.path = c.path;
+  t.sender = c.sender;
+  t.text = c.text;
+  t.age = c.age;
+  t.air_ms = c.air_ms;
+  _snmp_agent.updateFilterStats(t);
+}
+#endif
 
 #if defined(WITH_MQTT_NEIGHBORS)
 #include "helpers/MQTTMessageBuilder.h"
