@@ -1818,9 +1818,11 @@ void MyMesh::pushSNMPStats(uint32_t now) {
     getTotalAirTime() / 1000, uptime_millis / 1000);
 
   int neighbour_count = 0;
+#if defined(WITH_MQTT_NEIGHBORS)   // the room server keeps no neighbour table without it
   for (int i = 0; i < MAX_NEIGHBOURS; i++) {
     if (neighbours[i].heard_timestamp > 0) neighbour_count++;
   }
+#endif
   _snmp_agent.updateMeshStats(
     _mgr->getOutboundCount(0xFFFFFFFF),
     ((SimpleMeshTables *)getTables())->getNumFloodDups(),

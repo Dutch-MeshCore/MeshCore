@@ -133,7 +133,7 @@ Packet filter drop totals since boot or the last `clear stats`. In dry-run mode 
 
 | OID | Type | Description |
 |---|---|---|
-| `.8.1.0` | INTEGER | Neighbours in the neighbour table |
+| `.8.1.0` | INTEGER | Neighbours in the neighbour table (always 0 on room servers without PSRAM, which keep no table) |
 
 ## Example Output
 
