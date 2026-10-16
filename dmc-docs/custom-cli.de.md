@@ -67,6 +67,20 @@ App aus. Wird über die Befehlskonsole der App, USB-Seriell oder Remote-CLI gese
 Mit aktiviertem Repeat werden malformed/age/path-Nachrichten auch nicht weitergeleitet;
 sender/text-Regeln blenden eine Nachricht nur für dich aus, sie wird für andere weiterhin weitergeleitet.
 
+## Companion SNMP, OTA und MAC
+
+Auf **Companion**-Builds, die sich mit WLAN verbinden können (ESP32 `*_companion_radio_wifi` und
+die ESP32-`*_companion_radio_ble`-Boards mit WLAN). Gespeichert in `/cnet.json`. Siehe
+[`docs/companion_snmp_ota_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_snmp_ota_reference.md).
+
+- `get snmp` / `set snmp on|off` (standardmäßig **aus**; UDP 161, nur lesend, OID-Layout des Observers)
+- `get snmp.status` / `get snmp.community` / `set snmp.community <Text>` (Standard `public`)
+- `ota check` / `ota update` / `ota status` (DutchMeshCore-OTA-Server, HTTPS)
+- `ota branch` / `ota branch stable|dev|default`
+- `get mac` / `get wifi.mac` / `get ble.mac` (jeder ESP32-Build)
+
+Kein OTA auf Boards mit 4 MB Flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1). Eine neue Partitionstabelle oder ein Board ohne zweiten App-Slot braucht weiterhin einen USB-Flash.
+
 ## Duty-Cycle-Region-Gating
 
 `dc.gate.*`. Standardmäßig **aus**. Wirft Inter-Regions-Flood-Verkehr ab, wenn der

@@ -982,6 +982,7 @@ void MyMesh::begin() {
   importMeshcomodSettings(_prefs, *_store);   // DMC: keep settings when upgrading from meshcomod
   _store->loadPrefs(_prefs);
   loadCompanionFilter(_cfilter, *_store);   // DMC companion filter
+  loadCompanionNet(_cnet, *_store);   // DMC companion SNMP / OTA settings
   sensors.node_lat = _prefs.node_lat;
   sensors.node_lon = _prefs.node_lon;
 
@@ -2214,6 +2215,7 @@ bool MyMesh::handleCommand(const char* command, uint32_t sender_timestamp, char*
   }
 
   if (dmcFilterCommand(command, reply)) return true;   // DMC companion filter
+  if (dmcNetCommand(command, sender_timestamp, reply)) return true;   // DMC companion SNMP / OTA / MAC
 
   return false;  // not handled
 }

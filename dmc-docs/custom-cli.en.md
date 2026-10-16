@@ -66,6 +66,20 @@ messages are never filtered. Saved to `/cfilter.json`. See
 With repeat enabled, malformed/age/path messages are not repeated either; sender/text rules only
 hide a message from you and it is still repeated for others.
 
+## Companion SNMP, OTA and MAC
+
+On **companion** builds that can join Wi-Fi (ESP32 `*_companion_radio_wifi`, and the ESP32
+`*_companion_radio_ble` boards with Wi-Fi). Saved to `/cnet.json`. See
+[`docs/companion_snmp_ota_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_snmp_ota_reference.md).
+
+- `get snmp` / `set snmp on|off` (**off** by default; UDP 161, read-only, observer OID layout)
+- `get snmp.status` / `get snmp.community` / `set snmp.community <text>` (default `public`)
+- `ota check` / `ota update` / `ota status` (DutchMeshCore OTA server, HTTPS)
+- `ota branch` / `ota branch stable|dev|default`
+- `get mac` / `get wifi.mac` / `get ble.mac` (every ESP32 build)
+
+No OTA on 4 MB flash boards (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1). A new partition table, or a board without a second app slot, still needs a USB flash.
+
 ## Duty-cycle region gating
 
 `dc.gate.*`. **Off** by default. Sheds inter-region flood traffic when the repeater has

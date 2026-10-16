@@ -126,6 +126,10 @@ disable_debug_flags() {
 
 # build firmware for the provided pio env in $1
 build_firmware() {
+  # Per-env -D flags (version, OTA variant) are appended below; restore the caller's
+  # flags on return so they do not leak into the next env of a multi-env build.
+  local SAVED_PIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS}"
+
   # get env platform for post build actions
   ENV_PLATFORM=($(get_platform_for_env $1))
 
@@ -170,6 +174,19 @@ build_firmware() {
   # add firmware version info to end of existing platformio build flags in environment vars
   export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DFIRMWARE_BUILD_DATE='\"${FIRMWARE_BUILD_DATE}\"' -DFIRMWARE_VERSION='\"${EMBEDDED_VERSION_STRING}\"'"
 
+  # DMC companion pull OTA (`ota check` / `ota update` / `ota branch`): the device reads
+  # <base>/<env>.json from the DutchMeshCore OTA server, which mirrors the dmc-companion-*
+  # releases. Both channel bases are baked in for `ota branch`; the build's own channel
+  # (dev for DMC_CHANNEL=dev) is the default. Only Wi-Fi capable ESP32 builds use them.
+  if [[ "$1" =~ _companion_radio_(wifi|ble)$ ]]; then
+    local OTA_URL="${COMPANION_OTA_URL:-https://ota.dutchmeshcore.nl/companion}"
+    local OTA_NATIVE="${OTA_URL}/v"
+    if [ "${DMC_CHANNEL:-}" == "dev" ]; then
+      OTA_NATIVE="${OTA_URL}/dev/v"
+    fi
+    export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DCOMPANION_OTA_VARIANT='\"$1\"' -DCOMPANION_OTA_BASE='\"${OTA_NATIVE}\"' -DCOMPANION_OTA_BASE_STABLE='\"${OTA_URL}/v\"' -DCOMPANION_OTA_BASE_DEV='\"${OTA_URL}/dev/v\"'"
+  fi
+
   # disable debug flags if requested
   disable_debug_flags
 
@@ -181,6 +198,13 @@ build_firmware() {
     pio run -t mergebin -e $1
     cp .pio/build/$1/firmware.bin out/${FIRMWARE_FILENAME}.bin 2>/dev/null || true
     cp .pio/build/$1/firmware-merged.bin out/${FIRMWARE_FILENAME}-merged.bin 2>/dev/null || true
+    # Partition-table signature for the OTA server's manifest (partSig): `ota update`
+    # refuses an image built for a different partition layout than the device has.
+    if [[ "$1" =~ _companion_radio_(wifi|ble)$ ]] && [ -f ".pio/build/$1/partitions.bin" ]; then
+      if ! python3 scripts/partition_signature.py ".pio/build/$1/partitions.bin" > "out/$1.partsig"; then
+        rm -f "out/$1.partsig"
+      fi
+    fi
   fi
 
   # build .uf2 for nrf52 boards, copy .uf2 and .zip to out folder (e.g: RAK_4631_Repeater-v1.0.0-SHA.uf2)
@@ -202,6 +226,7 @@ build_firmware() {
     cp .pio/build/$1/firmware.uf2 out/${FIRMWARE_FILENAME}.uf2 2>/dev/null || true
   fi
 
+  export PLATFORMIO_BUILD_FLAGS="${SAVED_PIO_BUILD_FLAGS}"
 }
 
 # firmwares containing $1 will be built

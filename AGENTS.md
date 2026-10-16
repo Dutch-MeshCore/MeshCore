@@ -65,6 +65,8 @@ not a side effect. Grouped by what pulls them in:
 build / release   build.sh, platformio.ini
 packet filter     examples/simple_repeater/MyMesh.{cpp,h}, docs/cli_commands.md
 companion filter  examples/companion_radio/MyMesh.{cpp,h}, docs/cli_commands.md
+companion net     examples/companion_radio/{MyMesh.{cpp,h},main.cpp}, build.sh,
+                  variants/*/platformio.ini (SNMP lib_deps), docs/cli_commands.md
 region gating     src/Dispatcher.{cpp,h}, src/helpers/RegionMap.{cpp,h},
                   src/helpers/CommonCLI.{cpp,h}, test/mocks/{Arduino,SHA256,Stream}.h
 duty-cycle auto   src/helpers/CommonRadioPrefs.{cpp,h}, src/helpers/CommonCLI.{cpp,h},
