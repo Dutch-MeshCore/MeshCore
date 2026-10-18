@@ -1293,7 +1293,7 @@ region save
 **Parameters:**
 - `state`: `on`|`off`
 
-**Default:** `off`
+**Default:** `off`, except on boards built with `GPS_DEFAULT_ON` (SenseCAP Solar), where the first boot turns it `on`. That includes nodes upgraded from older firmware. A later `gps off` is kept across reboots.
 
 **Note:** Output format:
 - `off` when the GPS hardware is disabled

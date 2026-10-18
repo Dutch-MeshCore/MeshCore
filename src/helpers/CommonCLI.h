@@ -61,6 +61,7 @@ public:
   // Gps settings
   uint8_t gps_enabled = 0;
   uint32_t gps_interval = 0; // in seconds
+  uint8_t gps_default_applied = 0; // GPS_DEFAULT_ON has been applied once (boolean)
   uint8_t advert_loc_policy = 0;
   uint32_t discovery_mod_timestamp = 0;
   float adc_multiplier = 0;
@@ -166,6 +167,7 @@ private:
       def("en", _parent->gps_enabled); // boolean
       def("int", _parent->gps_interval);   // interval in seconds
       def("adv_loc", _parent->advert_loc_policy);
+      def("dflt_on", _parent->gps_default_applied);
     }
   public:
     GPSPrefs(NodePrefs* parent) : _parent(parent) { }

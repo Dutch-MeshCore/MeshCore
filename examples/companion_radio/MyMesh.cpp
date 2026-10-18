@@ -1,5 +1,6 @@
 #include "MyMesh.h"
 #include <helpers/DutyCycleLimits.h>
+#include <helpers/GpsDefault.h>
 
 #include <Arduino.h> // needed for PlatformIO
 #ifdef ENABLE_WIFI_INTERFACE
@@ -998,6 +999,11 @@ void MyMesh::begin() {
   _prefs.tx_power_dbm = constrain(_prefs.tx_power_dbm, -9, MAX_LORA_TX_POWER);
   _prefs.gps_enabled = constrain(_prefs.gps_enabled, 0, 1);  // Ensure boolean 0 or 1
   _prefs.gps_interval = constrain(_prefs.gps_interval, 0, 86400);  // Max 24 hours
+#ifdef GPS_DEFAULT_ON
+  if (applyGpsDefaultOn(_prefs.gps_enabled, _prefs.gps_default_applied)) {
+    savePrefs();
+  }
+#endif
 
   _active_ble_pin = _prefs.ble_pin;
 

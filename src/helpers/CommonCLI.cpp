@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "CommonCLI.h"
 #include "DutyCycleLimits.h"
+#include "GpsDefault.h"
 #include "TxtDataHelpers.h"
 #include "AdvertDataHelpers.h"
 #include "TxtDataHelpers.h"
@@ -45,6 +46,11 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   //    fs->remove("/com_prefs");  // remove old
     }
   }
+#ifdef GPS_DEFAULT_ON
+  if (applyGpsDefaultOn(_prefs->gps_enabled, _prefs->gps_default_applied)) {
+    savePrefs(fs);
+  }
+#endif
 }
 
 void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy prefs loader
