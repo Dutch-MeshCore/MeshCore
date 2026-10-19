@@ -7,9 +7,7 @@
 #include "helpers/GpsDefault.h"
 #include "../../examples/companion_radio/NodePrefs.h"
 
-// CommonRadioPrefs.cpp needs target.h, so it is not in the native build. These tests use no radio keys.
-bool CommonRadioPrefs::setByKey(const char*, const char*) { return false; }
-bool CommonRadioPrefs::getByKey(const char*, char*, size_t) { return false; }
+// CommonRadioPrefs::setByKey/getByKey come from test/mocks/CommonRadioPrefs.cpp on this branch.
 
 class ReplayStream : public Stream {
   const char* _text;
