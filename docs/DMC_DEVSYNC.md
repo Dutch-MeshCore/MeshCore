@@ -109,7 +109,7 @@ Firmware CLI/pref changes need matching updates in the sibling `Dutch-Meshcore-T
 - **BUG to fix (user-facing, nl/en/de):** `src/components/config/panelHelpContent.ts` `regionGating`
   intros/fields describe `dc.gate` as **neighbour-count** based ("aantal buren" / "number of
   neighbours"). The firmware is **TX-duty-cycle** based: `dc.gate.thresh` = TX duty-cycle % above
-  which outer regions get gated (default 70), `dc.gate.hyst` = recovery margin % (default 10); it
+  which outer regions get gated (true TX duty over 60 s, default 35), `dc.gate.hyst` = recovery margin % (default 10); it
   sheds airtime, not neighbours. The CLI `descriptions.{nl,de}.ts` already describe it correctly as
   duty %, so the help panel contradicts them. Rewrite the three-language help to the duty-cycle model.
 - Register `v1.17.1.01` in `src/lib/cli/firmwareRegistry.ts`; add an en/nl changelog entry
