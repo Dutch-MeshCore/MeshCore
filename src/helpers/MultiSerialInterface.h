@@ -2,6 +2,11 @@
 
 #include "BaseSerialInterface.h"
 
+// Some board libraries #define NONE (the Heltec mesh solar's meshsolar logger.h
+// does), which breaks InterfaceType::NONE. Shield this header from it.
+#pragma push_macro("NONE")
+#undef NONE
+
 #ifndef MAX_INTERFACES
   // ble, usb, wifi, ethernet
   #define MAX_INTERFACES 4
@@ -198,3 +203,5 @@ public:
   }
 
 };
+
+#pragma pop_macro("NONE")

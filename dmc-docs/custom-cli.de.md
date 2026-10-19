@@ -48,22 +48,61 @@ ACL-Kontaktpakete werden übersprungen. Der Zustand wird in `/filter_prefs` gesp
 | `04` | ADVERT | `10` | MULTIPART |
 | `05` | GRP_TXT | `11` | CONTROL |
 
+## Companion-Filter
+
+`filter ...` auf der **Companion**-Firmware: blendet Müll und unerwünschte Kanalnachrichten in der
+App aus. Wird über die Befehlskonsole der App, USB-Seriell oder Remote-CLI gesendet. Standardmäßig
+**aus**; Direktnachrichten werden nie gefiltert. Gespeichert in `/cfilter.json`. Siehe
+[`docs/companion_filter_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_filter_reference.md).
+
+- `filter`: Status und Summen pro Grund
+- `filter help` / `filter on` / `filter off` / `filter reset`
+- `filter malformed on|off` (falscher Zeitstempel, leerer Text oder ungültiges UTF-8, auf jedem eigenen Kanal)
+- `filter age <Minuten>|off` (1-10080; Gruppennachrichten, die älter sind)
+- `filter path list|add|remove <hex>` (bis zu 8; Adverts und Gruppenverkehr über diesen Repeater)
+- `filter sender add <Name> [secs] [prob]` / `remove` / `list` (bis zu 8; `Bot*` = Präfix)
+- `filter text add <Muster> [secs] [prob]` / `remove` / `list` (bis zu 8; `^` = Anfang der Nachricht)
+- `filter stats malformed|age|path|sender|text`
+
+Mit aktiviertem Repeat werden malformed/age/path-Nachrichten auch nicht weitergeleitet;
+sender/text-Regeln blenden eine Nachricht nur für dich aus, sie wird für andere weiterhin weitergeleitet.
+
+## Companion SNMP, OTA und MAC
+
+Auf **Companion**-Builds, die sich mit WLAN verbinden können (ESP32 `*_companion_radio_wifi` und
+die ESP32-`*_companion_radio_ble`-Boards mit WLAN). Gespeichert in `/cnet.json`. Siehe
+[`docs/companion_snmp_ota_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_snmp_ota_reference.md).
+
+- `get snmp` / `set snmp on|off` (standardmäßig **aus**; UDP 161, nur lesend, OID-Layout des Observers)
+- `get snmp.status` / `get snmp.community` / `set snmp.community <Text>` (Standard `public`)
+- `ota check` / `ota update` / `ota status` (DutchMeshCore-OTA-Server, HTTPS)
+- `ota branch` / `ota branch stable|dev|default`
+- `get mac` / `get wifi.mac` / `get ble.mac` (jeder ESP32-Build)
+
+Kein OTA auf Boards mit 4 MB Flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1). Eine neue Partitionstabelle oder ein Board ohne zweiten App-Slot braucht weiterhin einen USB-Flash.
+
 ## Duty-Cycle-Region-Gating
 
 `dc.gate.*`. Standardmäßig **aus**. Wirft Inter-Regions-Flood-Verkehr ab, wenn der
-Repeater den größten Teil seines Duty-Cycle-Budgets verbraucht hat. Transient: wird nie in
+Repeater einen großen Teil der Zeit sendet. Transient: wird nie in
 die Regionskonfiguration geschrieben. Läuft vor dem Packet-Filter, daher erscheinen diese
 Drops nicht in `filter stats`.
 
 - `set dc.gate <on|off>` / `get dc.gate` (`1`/`0` funktionieren auch)
-- `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (Standard 70)
+- `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (Standard 35)
 - `set dc.gate.hyst <0-50>` / `get dc.gate.hyst` (Standard 10)
-- `get dc.gate.status` (z. B. `duty 74%, gate level 2/4`)
+- `get dc.gate.status` (z. B. `duty 41%, gate level 2/4`)
 
-Schwelle, Hysterese und `duty` sind ein Prozentsatz des **Duty-Cycle-Budgets**
-(`set dutycycle`), nicht der Uhrzeit. Mit `dutycycle 10` darf der Repeater 360 Sekunden
-pro Stunde senden; `dc.gate.thresh 70` beginnt mit dem Gating, sobald 252 dieser Sekunden
-verbraucht sind. Die Schwelle muss also nicht unter dem Duty-Cycle-Limit liegen.
+Schwelle, Hysterese und `duty` sind der **echte TX-Duty-Cycle**: der Anteil der Uhrzeit,
+in dem der Repeater in den letzten 60 Sekunden gesendet hat. Das ist nicht dasselbe wie
+das Duty-Cycle-Limit (`set dutycycle`): Es gilt pro Stunde, aus einer Sendezeitreserve,
+die der Repeater in Spitzen aufbrauchen darf. Mit `dutycycle 10` (360 Sekunden pro
+Stunde) bleibt normaler Verkehr deutlich unter 35 %; ein Repeater, der 35 % der Zeit
+sendet, hat die Reserve in etwa 24 Minuten aufgebraucht, und das Gating greift vorher
+ein. Auf einem 1-%-Subband ist `10`-`15` eine bessere Schwelle.
+
+Frühere DMC-Builds maßen einen Prozentsatz des Duty-Cycle-Budgets (Standard 70). Dieser
+Wert wird nach dem Update nicht übernommen; die Schwelle beginnt dann bei 35.
 
 ## Duty-Cycle
 
@@ -88,6 +127,13 @@ Nur auf ESP32-Observer-Builds.
   `config`-Topic, gespeichert in `/mqtt.json`), `set mqtt.filter.interval <60-600>`,
   `set mqtt.neighbors <on|off>` + `set mqtt.neighbors.interval <Stunden>` (nur mit PSRAM)
 - **NTP**: `set mqtt.ntp <host|none>`, `get mqtt.ntp.diag`
+- **Netzwerkverbindung**: `get link.status` (Medium, Verbindung, IP, Signal und Uptime;
+  ersetzt `get wifi.status`), `get link.diag` (warum Ethernet oder WiFi gewählt wurde,
+  ThinkNode-M7-Ethernet-Builds), `get link.dns` (aktive DNS-Resolver und Gateway)
+- **Advert-Prüfung**: `set mqtt.advert.verify <on|off>` / `get mqtt.advert.verify`
+  (Adverts mit ungültiger Signatur nicht veröffentlichen; Standard `off`)
+- **Manuelles OTA**: `stop ota` (stoppt einen untätigen `start ota`-Webserver und gibt
+  Port 80 frei; verweigert während eines Uploads)
 
 Veröffentlichte Topics (Suffixe an einem gemeinsamen Prefix): `status`, `packets`,
 `filter`, `neighbors`, `config`.

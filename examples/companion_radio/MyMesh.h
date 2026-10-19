@@ -22,6 +22,9 @@
 #include <SPIFFS.h>
 #endif
 
+#include "CompanionFilter.h"
+#include "CompanionNet.h"
+#include "MeshcomodPrefs.h"
 #include "DataStore.h"
 #include "NodePrefs.h"
 
@@ -140,6 +143,18 @@ protected:
   bool filterRecvFloodPacket(mesh::Packet* packet) override;
   bool allowPacketForward(const mesh::Packet* packet) override;
 
+  // DMC companion filter (CompanionFilterHook.cpp)
+  bool dmcFilterFlood(mesh::Packet* packet);
+  bool dmcFilterHidden(const mesh::Packet* packet);
+  bool dmcFilterCommand(const char* command, char* reply);
+  CompanionFilter _cfilter;
+  uint8_t _cfilter_hidden[MAX_HASH_SIZE];
+  bool _cfilter_hidden_set = false;
+
+  // DMC companion network extras: SNMP, OTA, MAC (CompanionNet.cpp)
+  bool dmcNetCommand(const char* command, uint32_t sender_timestamp, char* reply);
+  CompanionNetPrefs _cnet;
+
   void sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis);
   void sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis=0) override;
   void sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis=0) override;
@@ -214,6 +229,14 @@ public:
 
   // To check if there is pending work
   bool hasPendingWork() const;
+
+  // DMC companion network extras (CompanionNet.cpp, CompanionSNMP.cpp)
+  void dmcNetLoop();
+  int dmcNumChannels();
+  int dmcTxQueueLen() const { return _mgr->getOutboundTotal(); }
+  uint16_t dmcErrFlags() const { return _err_flags; }
+  const Counters& dmcFilterCounters() const { return _cfilter.counters(); }
+  bool dmcFilterEnabled() const { return _cfilter.isEnabled(); }
 
 private:
   void writeOKFrame();

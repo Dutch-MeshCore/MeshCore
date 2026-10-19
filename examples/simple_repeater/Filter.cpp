@@ -425,17 +425,11 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
 
     // message age
     } else if (strcmp(parts[1], "age") == 0) {
-      const char* v = parts[2];
-      bool digits = v[0] != '\0';
-      for (const char* c = v; *c; c++) {
-        if (*c < '0' || *c > '9') { digits = false; break; }
-      }
-      long mins = digits ? atol(v) : -1;
-      if (strcmp(v, "off") == 0) mins = 0;
-      if (mins < 0 || mins > FILTER_AGE_MAX_MINS) {
+      uint16_t mins;
+      if (!MessageAge::parseMins(parts[2], &mins)) {
         strcpy(reply, "> Filter: error <minutes> range is 1-10080, or off");
       } else {
-        _prefs.age_mins = (uint16_t)mins;
+        _prefs.age_mins = mins;
         save(fs);
         strcpy(reply, "> Filter: OK");
       }
@@ -530,71 +524,31 @@ void Filter::handleCommand(FILESYSTEM* fs, char* command, char* reply) {
 
 // ---- sender / text rules -------------------------------------------------------
 
-template <typename Rule>
-static bool addRule(Rule* rules, char* (*field)(Rule&), const char* pattern, size_t max_len, uint16_t secs, uint8_t prob) {
-  if (pattern == nullptr || pattern[0] == '\0' || strlen(pattern) > max_len) return false;
-
-  int free_slot = -1;
-  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
-    char* pat = field(rules[i]);
-    if (pat[0] == '\0') {
-      if (free_slot < 0) free_slot = i;
-    } else if (strcmp(pat, pattern) == 0) {
-      return false;   // already present
-    }
-  }
-  if (free_slot < 0) return false;
-
-  Rule& r = rules[free_slot];
-  memset(&r, 0, sizeof(r));
-  strncpy(field(r), pattern, max_len);
-  r.secs = secs;
-  r.prob = prob;
-  return true;
-}
-
-template <typename Rule>
-static int findRule(Rule* rules, char* (*field)(Rule&), const char* pattern) {
-  if (pattern == nullptr || pattern[0] == '\0') return -1;
-  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
-    if (strcmp(field(rules[i]), pattern) == 0) return i;
-  }
-  return -1;
-}
-
-static char* senderField(SenderRule& r) { return r.name; }
-static char* textField(TextRule& r) { return r.text; }
-
 bool Filter::addSenderRule(const char* name, uint16_t secs, uint8_t prob) {
-  return addRule(_prefs.sender_rules, senderField, name, FILTER_SENDER_LEN - 1, secs, prob);
+  return FilterRules::addRule(_prefs.sender_rules, FILTER_RULE_COUNT, name, secs, prob);
 }
 
 bool Filter::removeSenderRule(const char* name) {
-  int i = findRule(_prefs.sender_rules, senderField, name);
+  int i = FilterRules::removeRule(_prefs.sender_rules, FILTER_RULE_COUNT, name);
   if (i < 0) return false;
-  memset(&_prefs.sender_rules[i], 0, sizeof(SenderRule));
   _sender_last[i] = 0;
   return true;
 }
 
 bool Filter::addTextRule(const char* text, uint16_t secs, uint8_t prob) {
-  return addRule(_prefs.text_rules, textField, text, FILTER_TEXT_LEN - 1, secs, prob);
+  return FilterRules::addRule(_prefs.text_rules, FILTER_RULE_COUNT, text, secs, prob);
 }
 
 bool Filter::removeTextRule(const char* text) {
-  int i = findRule(_prefs.text_rules, textField, text);
+  int i = FilterRules::removeRule(_prefs.text_rules, FILTER_RULE_COUNT, text);
   if (i < 0) return false;
-  memset(&_prefs.text_rules[i], 0, sizeof(TextRule));
   _text_last[i] = 0;
   return true;
 }
 
 bool Filter::hasContentRules(void) const {
-  for (int i = 0; i < FILTER_RULE_COUNT; i++) {
-    if (_prefs.sender_rules[i].name[0] != '\0') return true;
-    if (_prefs.text_rules[i].text[0] != '\0') return true;
-  }
-  return false;
+  return FilterRules::anyRule(_prefs.sender_rules, FILTER_RULE_COUNT) ||
+         FilterRules::anyRule(_prefs.text_rules, FILTER_RULE_COUNT);
 }
 
 // The key to decrypt a group text with, when the rules may read it: Public is
@@ -711,39 +665,11 @@ bool Filter::removeChannel(const char* name) {
 // `formatted` receives the canonical upper-case prefix, or "" when `hex` did
 // not parse, so the caller can tell a bad prefix from a full or missing slot.
 bool Filter::addPath(const char* hex, char* formatted) {
-  formatted[0] = '\0';
-  PathPrefix p;
-  if (!FilterPath::parse(hex, &p)) return false;
-  FilterPath::format(formatted, 2 * FILTER_PATH_MAX_LEN + 1, p);
-
-  int free_slot = -1;
-  for (int i = 0; i < FILTER_PATH_COUNT; i++) {
-    PathPrefix& cur = _prefs.path_block[i];
-    if (cur.len == 0) {
-      if (free_slot < 0) free_slot = i;
-    } else if (cur.len == p.len && memcmp(cur.bytes, p.bytes, p.len) == 0) {
-      return false;   // already blocked
-    }
-  }
-  if (free_slot < 0) return false;
-  _prefs.path_block[free_slot] = p;
-  return true;
+  return FilterPath::add(_prefs.path_block, FILTER_PATH_COUNT, hex, formatted);
 }
 
 bool Filter::removePath(const char* hex, char* formatted) {
-  formatted[0] = '\0';
-  PathPrefix p;
-  if (!FilterPath::parse(hex, &p)) return false;
-  FilterPath::format(formatted, 2 * FILTER_PATH_MAX_LEN + 1, p);
-
-  for (int i = 0; i < FILTER_PATH_COUNT; i++) {
-    PathPrefix& cur = _prefs.path_block[i];
-    if (cur.len == p.len && memcmp(cur.bytes, p.bytes, p.len) == 0) {
-      memset(&cur, 0, sizeof(cur));
-      return true;
-    }
-  }
-  return false;
+  return FilterPath::remove(_prefs.path_block, FILTER_PATH_COUNT, hex, formatted);
 }
 
 bool Filter::getChannelHash(const char* name, mesh::GroupChannel* gc) {
@@ -792,83 +718,11 @@ void Filter::listChannelNames(char *out_buf, size_t out_size, bool with_counts) 
 }
 
 bool Filter::validMessageContent(const uint8_t* data, uint8_t len, uint8_t* reason) {
-  if (data == nullptr || len <= 5) {
-    *reason = MALFORMED_SHORT;
-    return false;
-  }
-
-  // check timestamp
-  uint32_t timestamp;
-  memcpy(&timestamp, &data[0], 4);
-  if (MessageAge::implausible(timestamp, _rtc->getCurrentTime())) {
-    *reason = MALFORMED_TIMESTAMP;
-    return false;
-  }
-
-  // check message type
-  uint8_t txt_type = data[4] >> 2;
-  if (txt_type != TXT_TYPE_PLAIN) return true;
-
-  // calculate text length
-  uint8_t txt_len = 5;
-  while (txt_len < len && data[txt_len] != 0) txt_len++;
-  txt_len -= 5;
-  if (!txt_len) {
-    *reason = MALFORMED_EMPTY;
-    return false;
-  }
-
-  // valid UTF8
-  if (!isValidUTF8(&data[5], txt_len)) {
-    *reason = MALFORMED_UTF8;
-    return false;
-  }
-
-  // valid
-  return true;
+  return MessageContent::validate(data, len, _rtc->getCurrentTime(), reason);
 }
 
 bool Filter::isValidUTF8(const uint8_t* data, uint8_t len) {
-  if (data == nullptr || len == 0) return false;
-
-  uint8_t i = 0;
-  while (i < len) {
-    uint8_t c = data[i++];
-    if (c == 0) break;
-    if (c < 0x80) continue;
-
-    uint32_t codepoint;
-    uint8_t needed;
-    if ((c & 0xE0) == 0xC0) {
-      codepoint = c & 0x1F;
-      needed = 1;
-      if (codepoint == 0) return false;
-    } else if ((c & 0xF0) == 0xE0) {
-      codepoint = c & 0x0F;
-      needed = 2;
-    } else if ((c & 0xF8) == 0xF0) {
-      codepoint = c & 0x07;
-      needed = 3;
-    } else {
-      return false;
-    }
-
-    if (i + needed > len) return false;
-    for (uint8_t j = 0; j < needed; j++) {
-      uint8_t cc = data[i++];
-      if ((cc & 0xC0) != 0x80) return false;
-      codepoint = (codepoint << 6) | (cc & 0x3F);
-    }
-
-    if (needed == 1 && codepoint < 0x80) return false;
-    if (needed == 2 && codepoint < 0x0800) return false;
-    if (needed == 3 && codepoint < 0x10000) return false;
-    if (codepoint > 0x10FFFF) return false;
-    if (codepoint >= 0xD800 && codepoint <= 0xDFFF) return false;
-    if (codepoint >= 0xFDD0 && codepoint <= 0xFDEF) return false;
-    if ((codepoint & 0xFFFE) == 0xFFFE) return false;
-  }
-  return true;
+  return MessageContent::isValidUTF8(data, len);
 }
 
 bool Filter::load(FILESYSTEM* fs) {
@@ -921,8 +775,8 @@ bool Filter::load(FILESYSTEM* fs) {
     _prefs.payload_prefs[i].hops_max = constrain(_prefs.payload_prefs[i].hops_max, 0, 64);
     // a soft cutoff at/above the hard limit leaves no ramp room -> treat as off
     if (_prefs.soft_limit[i] >= _prefs.payload_prefs[i].rate_limit) _prefs.soft_limit[i] = 0;
-    _limiters[i].init(_prefs.payload_prefs[i].rate_limit, _prefs.payload_prefs[i].rate_secs, _prefs.soft_limit[i]);
   }
+  initLimiters();
   _prefs.minimal_hash_bytes = constrain(_prefs.minimal_hash_bytes, 1, 3);
   _prefs.filter_malformed = constrain(_prefs.filter_malformed, 0, 1);
   _prefs.dryrun = constrain(_prefs.dryrun, 0, 1);

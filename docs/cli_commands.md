@@ -10,6 +10,8 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - [Logging](#logging)
 - [Information](#info)
 - [Packet Filter](#packet-filter-repeater-only)
+- [Companion Receive Filter](#companion-receive-filter-companion-only)
+- [Companion SNMP, OTA and MAC](#companion-snmp-ota-and-mac-companion-only)
 - [Configuration](#configuration)
   - [Radio](#radio)
   - [System](#system)
@@ -346,6 +348,47 @@ filter stats hops
 
 ---
 
+## Companion Receive Filter (Companion Only)
+
+The DMC companion firmware has its own `filter` command that keeps junk and unwanted channel messages out of the app. It is sent through the app's command console (`CMD_RUN_CLI_COMMAND`), USB serial, or remote CLI. Settings are persisted to `/cfilter.json`. Disabled by default; direct and addressed traffic is never filtered.
+
+Find more information in [companion_filter_reference.md](companion_filter_reference.md)
+
+**Usage:**
+- `filter` — status: `> Filter on: Hidden [ Malformed: N | Age: N | Path: N | Sender: N | Text: N ]`
+- `filter help`
+- `filter on` / `filter off`
+- `filter reset` — restore the defaults (counters are not affected)
+- `filter malformed` / `filter malformed <on|off>` — drop group text with a bad timestamp, empty text or invalid UTF-8, on every channel the companion holds
+- `filter age` / `filter age <minutes>|off` — drop group text older than this (1–10080)
+- `filter path list|add|remove <hex>` — drop flood adverts and group traffic relayed by a repeater whose ID starts with the prefix (2–8 hex digits, up to 8)
+- `filter sender list|add <name> [secs] [prob]|remove <name>` — hide group text by sender (up to 8; `Bot*` = prefix)
+- `filter text list|add <pattern> [secs] [prob]|remove <pattern>` — hide group text by content (up to 8; `^` = start of message)
+- `filter stats malformed|age|path|sender|text` — what each setting filtered, in the same formats as the repeater filter
+
+**Note:** Malformed, age and path filtering *drop* a packet: with repeat enabled it is not repeated either. Sender and text rules only *hide* it: it is still repeated for others.
+
+---
+
+## Companion SNMP, OTA and MAC (Companion Only)
+
+DMC companion builds that can join Wi-Fi (ESP32 `*_companion_radio_wifi`, and the ESP32 `*_companion_radio_ble` boards with Wi-Fi) have an SNMP agent and pull OTA from the DutchMeshCore OTA server. Sent through the app's command console, USB serial or remote CLI. Settings are persisted to `/cnet.json`.
+
+Find more information in [companion_snmp_ota_reference.md](companion_snmp_ota_reference.md)
+
+**Usage:**
+- `get snmp` / `set snmp <on|off>` — read-only SNMPv2c agent on UDP 161, off by default; same OID layout as the observer firmware
+- `get snmp.status` — `off`, `on, waiting for Wi-Fi` or `running on udp/161`
+- `get snmp.community` / `set snmp.community <text>` — default `public`; not readable over remote CLI
+- `ota check` — is a newer build published for this board?
+- `ota update` — check, then download, flash and reboot (HTTPS, verified)
+- `ota status` — `idle`, `starting` or the last failure
+- `ota branch` / `ota branch <stable|dev|default>` — the OTA channel
+- `get mac` / `get wifi.mac` / `get ble.mac` — factory MAC addresses (every ESP32 build; `n/a` elsewhere)
+
+**Note:** An update with a different partition table, or on a board without a second app slot, needs a USB flash. Boards with 4 MB flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1) have no OTA.
+
+---
 
 ## Configuration
 
@@ -776,15 +819,15 @@ reports which of the two is active.
 
 #### Duty-cycle region gating
 
-Autonomously sheds inter-region flood traffic when this repeater has used up most
-of its duty-cycle budget, protecting the local cluster during high-traffic or disruption
+Autonomously sheds inter-region flood traffic when this repeater is transmitting a
+large share of the time, protecting the local cluster during high-traffic or disruption
 events — no admin access needed once configured. Opt-in and **off by default**.
 
 It reuses the existing [Region Management](#region-management-v110) hierarchy.
-When budget use rises above the threshold, regions are gated from the
+When the TX duty cycle rises above the threshold, regions are gated from the
 outermost layer inward — the wildcard `*` first, then the broadest named regions
 — always keeping the innermost cluster and the operator's home region open. As
-budget use recovers below `threshold − hysteresis`, regions re-open
+the duty cycle falls below `threshold − hysteresis`, regions re-open
 inside-out, with a small random per-step delay so nearby repeaters don't all
 recover in lockstep. The gate is transient: it is never written to the region
 config, so a `region save` or a reboot mid-event can never make a deny permanent.
@@ -792,40 +835,51 @@ config, so a `region save` or a reboot mid-event can never make a deny permanent
 **Usage:**
 - `set dc.gate <on|off>` — enable or disable the feature (`1`/`0` work too)
 - `get dc.gate` — show whether it is on or off
-- `set dc.gate.thresh <1-100>` — % of the duty-cycle budget used above which gating starts
+- `set dc.gate.thresh <1-100>` — TX duty cycle (% of wall-clock time spent transmitting) above which gating starts
 - `get dc.gate.thresh`
 - `set dc.gate.hyst <0-50>` — recovery margin in percentage points: regions re-open below `(threshold − hysteresis)`
 - `get dc.gate.hyst`
-- `get dc.gate.status` — live % of the duty-cycle budget used, and current gate level (`level/max`)
+- `get dc.gate.status` — live TX duty cycle over the last 60 seconds, and current gate level (`level/max`)
 
-**Defaults:** off; threshold `70`; hysteresis `10` (so recovery begins below 60%).
+**Defaults:** off; threshold `35`; hysteresis `10` (so recovery begins below 25%).
 
 **What the percentage measures:**
 
-`dc.gate.thresh`, `dc.gate.hyst` and the `duty` in `get dc.gate.status` are a
-percentage of this repeater's **duty-cycle budget** (set with
-[`set dutycycle`](#view-or-change-the-duty-cycle-limit)), **not** a percentage of
-wall-clock time. The budget is the airtime the duty-cycle limit allows per
-hour, and it refills continuously. `duty 0%` means the full budget is
-available; `duty 100%` means it is used up and the repeater has to hold back
-transmissions until it refills.
+`dc.gate.thresh`, `dc.gate.hyst` and the `duty` in `get dc.gate.status` are the
+repeater's **true TX duty cycle**: the share of wall-clock time it spent
+transmitting over the last 60 seconds (six 10-second slots). `duty 4%` means it
+transmitted for about 2.4 seconds in the last minute. The gate checks the duty
+cycle every 10 seconds and moves at most one region layer per check.
 
-For example, with `set dutycycle 10` the repeater may transmit for 360 seconds
-per hour. With the default threshold of `70`, gating starts once 70% of that
-budget is used (252 seconds, so less than 108 seconds left), and regions
-start re-opening once usage drops below 60% (216 seconds). The threshold
-therefore does **not** have to be set below the duty-cycle limit: `70` or `80`
-is sensible with a 1%, 10% or any other limit.
+This is not the same as the duty-cycle limit
+([`set dutycycle`](#view-or-change-the-duty-cycle-limit)). The limit applies per
+hour, from an airtime reserve that refills continuously: with `dutycycle 10` the
+repeater may transmit for 360 seconds per hour, and it may spend that reserve in
+bursts. A burst can push the 60-second duty cycle far above the limit; once the
+reserve runs low, TX pacing holds the repeater to the limit on its own.
 
-With no duty-cycle limit (`set dutycycle 100`, or `auto` outside the
-863-870 MHz table) the budget is the whole hour, so the percentage then does
-equal the share of wall-clock time spent transmitting.
+The default of `35` sits between the two. It is well above the 10% a repeater on
+the EU 869.4-869.65 MHz sub-band can sustain, so normal traffic does not trip it.
+A repeater transmitting 35% of the time, however, empties its 360-second reserve
+in about 24 minutes, and gating sheds inter-region floods before that happens.
+Suggested thresholds:
+
+- 10% sub-band (`dutycycle auto` around 869.5 MHz): the default `35`.
+- 1% sub-band (36 seconds per hour): `10`-`15`, because a single minute at 35%
+  already uses more than half of the reserve.
+- No duty-cycle limit (`dutycycle 100`, or `auto` outside 863-870 MHz): `35`-`50`,
+  to protect channel capacity rather than a legal budget.
+
+> **Upgrading:** earlier DMC builds measured a percentage of the duty-cycle budget
+> used, with default `70`. That value is stored under a different key and is not
+> carried over: after upgrading, the threshold starts at the new default `35`.
+> Re-set it if you had tuned it.
 
 **Examples:**
 - `set dc.gate on` — turn gating on
-- `set dc.gate.thresh 80` — only start shedding once 80% of the duty-cycle budget is used
-- `set dc.gate.hyst 15` — re-open regions once usage drops below 65% of the budget
-- `get dc.gate.status` — e.g. `> duty 74%, gate level 2/4`
+- `set dc.gate.thresh 50` — only start shedding once the repeater transmits half the time
+- `set dc.gate.hyst 15` — with threshold `35`, re-open regions once the duty cycle drops below 20%
+- `get dc.gate.status` — e.g. `> duty 41%, gate level 2/4`
 
 **Notes:**
 - The innermost (deepest) region layer and the configured home region are never gated.
@@ -1343,7 +1397,7 @@ region save
 **Parameters:**
 - `state`: `on`|`off`
 
-**Default:** `off`
+**Default:** `off`, except on boards built with `GPS_DEFAULT_ON` (SenseCAP Solar), where the first boot turns it `on`. That includes nodes upgraded from older firmware. A later `gps off` is kept across reboots.
 
 **Note:** Output format:
 - `off` when the GPS hardware is disabled

@@ -34,6 +34,11 @@ inline void delay(uint32_t ms) {
   g_mock_millis += ms;
 }
 
+// Same definition as the Arduino core macro.
+#ifndef constrain
+  #define constrain(amt, low, high) ((amt) < (low) ? (low) : ((amt) > (high) ? (high) : (amt)))
+#endif
+
 // ---- Arduino string helpers not present in the host libc --------------------
 // (MinGW/Windows already declares ltoa in <stdlib.h>, so only define it where
 //  the host libc lacks it — e.g. glibc on Linux.)

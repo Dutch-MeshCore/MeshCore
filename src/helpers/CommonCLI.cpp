@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "CommonCLI.h"
 #include "DutyCycleLimits.h"
+#include "GpsDefault.h"
 #include "TxtDataHelpers.h"
 #include "AdvertDataHelpers.h"
 #include "AlertReporter.h"  // for alertReporterBannedChannelMatch()
@@ -145,6 +146,13 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   if (loaded_from_legacy || _com_prefs_needs_upgrade) {
     savePrefs(fs);
     _com_prefs_needs_upgrade = false;
+  }
+#endif
+#ifdef GPS_DEFAULT_ON
+  // Only set on the SenseCAP Solar (nRF52, no MQTT bridge), so the /mqtt.json
+  // upgrade gate above never applies here.
+  if (applyGpsDefaultOn(_prefs->gps_enabled, _prefs->gps_default_applied)) {
+    savePrefs(fs);
   }
 #endif
 }
@@ -362,8 +370,6 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy 
     // duty-cycle region gating. dc_gate_threshold is a true TX duty cycle
     // percent (share of wall-clock time spent transmitting; see
     // Dispatcher::getTxDutyCyclePercent), NOT the old "% of airtime budget".
-    // Existing nodes carrying the old default (70) should be re-set to a
-    // realistic duty (e.g. ~35) or gating will effectively never fire.
     _prefs->dc_gate_enabled = constrain(_prefs->dc_gate_enabled, 0, 1);       // boolean
     _prefs->dc_gate_threshold = constrain(_prefs->dc_gate_threshold, 1, 100); // true TX duty cycle %
     _prefs->dc_gate_hysteresis = constrain(_prefs->dc_gate_hysteresis, 0, 50);// percent margin

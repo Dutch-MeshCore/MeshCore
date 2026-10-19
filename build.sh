@@ -129,6 +129,10 @@ disable_debug_flags() {
 
 # build firmware for the provided pio env in $1
 build_firmware() {
+  # Per-env -D flags (version, OTA variant) are appended below; restore the caller's
+  # flags on return so they do not leak into the next env of a multi-env build.
+  local SAVED_PIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS}"
+
   # get env platform for post build actions
   ENV_PLATFORM=($(get_platform_for_env $1))
 
@@ -258,6 +262,19 @@ build_firmware() {
   # (<OTA_MANIFEST_BASE>/<OTA_VARIANT>.json) that the observer pull-OTA fetches.
   export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DFIRMWARE_BUILD_DATE='\"${FIRMWARE_BUILD_DATE}\"' -DFIRMWARE_VERSION='\"${EMBEDDED_VERSION_STRING}\"' -DOTA_VARIANT='\"$1\"' -DOTA_MANIFEST_BASE='\"${OTA_MANIFEST_BASE_URL}\"' -DOTA_MANIFEST_BASE_STABLE='\"${OTA_MANIFEST_BASE_STABLE_URL}\"' -DOTA_MANIFEST_BASE_DEV='\"${OTA_MANIFEST_BASE_DEV_URL}\"'"
 
+  # DMC companion pull OTA (`ota check` / `ota update` / `ota branch`): the device reads
+  # <base>/<env>.json from the DutchMeshCore OTA server, which mirrors the dmc-companion-*
+  # releases. Both channel bases are baked in for `ota branch`; the build's own channel
+  # (dev for DMC_CHANNEL=dev) is the default. Only Wi-Fi capable ESP32 builds use them.
+  if [[ "$1" =~ _companion_radio_(wifi|ble)$ ]]; then
+    local OTA_URL="${COMPANION_OTA_URL:-https://ota.dutchmeshcore.nl/companion}"
+    local OTA_NATIVE="${OTA_URL}/v"
+    if [ "${DMC_CHANNEL:-}" == "dev" ]; then
+      OTA_NATIVE="${OTA_URL}/dev/v"
+    fi
+    export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DCOMPANION_OTA_VARIANT='\"$1\"' -DCOMPANION_OTA_BASE='\"${OTA_NATIVE}\"' -DCOMPANION_OTA_BASE_STABLE='\"${OTA_URL}/v\"' -DCOMPANION_OTA_BASE_DEV='\"${OTA_URL}/dev/v\"'"
+  fi
+
   # disable debug flags if requested
   disable_debug_flags
 
@@ -286,6 +303,7 @@ build_firmware() {
     python3 scripts/partition_signature.py ".pio/build/$1/partitions.bin" > "out/$1.partsig" 2>/dev/null || true
   fi
 
+  export PLATFORMIO_BUILD_FLAGS="${SAVED_PIO_BUILD_FLAGS}"
 }
 
 # firmwares containing $1 will be built

@@ -3,11 +3,14 @@
 
 using namespace mesh;
 
-static Packet makeFlood(uint8_t route_type, uint8_t payload_type, uint8_t hops) {
+// scoped packets get a real (non-zero) transport code unless the test asks for code 0
+static Packet makeFlood(uint8_t route_type, uint8_t payload_type, uint8_t hops, uint16_t code0 = 0x1234) {
     Packet p;
     p.header = route_type | (payload_type << PH_TYPE_SHIFT);
     p.setPathHashSizeAndCount(1, hops);
     p.payload_len = 1;
+    p.transport_codes[0] = code0;
+    p.transport_codes[1] = 0;
     return p;
 }
 
@@ -48,6 +51,42 @@ TEST(FloodHopLimit, UnscopedAdvertIsAlsoDroppedAtHopZero) {
 
     auto scoped = makeFlood(ROUTE_TYPE_TRANSPORT_FLOOD, PAYLOAD_TYPE_ADVERT, 0);
     EXPECT_FALSE(isFloodHopLimitExceeded(&scoped, 64, 0, 8));
+}
+
+// transport code 0 is 'un-scoped' (upstream #3568): it must not escape flood.max.unscoped
+TEST(UnscopedFlood, PlainFloodIsUnscoped) {
+    auto pkt = makeFlood(ROUTE_TYPE_FLOOD, PAYLOAD_TYPE_TXT_MSG, 0);
+    EXPECT_TRUE(isUnscopedFlood(&pkt));
+}
+
+TEST(UnscopedFlood, TransportFloodWithZeroCodeIsUnscoped) {
+    auto pkt = makeFlood(ROUTE_TYPE_TRANSPORT_FLOOD, PAYLOAD_TYPE_TXT_MSG, 0, 0);
+    EXPECT_TRUE(isUnscopedFlood(&pkt));
+}
+
+TEST(UnscopedFlood, TransportFloodWithRealCodeIsScoped) {
+    auto pkt = makeFlood(ROUTE_TYPE_TRANSPORT_FLOOD, PAYLOAD_TYPE_TXT_MSG, 0);
+    EXPECT_FALSE(isUnscopedFlood(&pkt));
+}
+
+TEST(UnscopedFlood, DirectRoutesAreNeverUnscopedFloods) {
+    auto direct = makeFlood(ROUTE_TYPE_DIRECT, PAYLOAD_TYPE_TXT_MSG, 0);
+    EXPECT_FALSE(isUnscopedFlood(&direct));
+    auto tdirect = makeFlood(ROUTE_TYPE_TRANSPORT_DIRECT, PAYLOAD_TYPE_TXT_MSG, 0, 0);
+    EXPECT_FALSE(isUnscopedFlood(&tdirect));
+}
+
+TEST(FloodHopLimit, ZeroCodeTransportFloodIsDroppedAtFirstHopWhenMaxUnscopedIsZero) {
+    auto pkt = makeFlood(ROUTE_TYPE_TRANSPORT_FLOOD, PAYLOAD_TYPE_TXT_MSG, 0, 0);
+    EXPECT_TRUE(isFloodHopLimitExceeded(&pkt, 64, 0, 8));
+}
+
+TEST(FloodHopLimit, ZeroCodeTransportFloodSurvivesUpToMaxUnscopedHops) {
+    auto ok = makeFlood(ROUTE_TYPE_TRANSPORT_FLOOD, PAYLOAD_TYPE_TXT_MSG, 2, 0);
+    EXPECT_FALSE(isFloodHopLimitExceeded(&ok, 64, 3, 8));
+
+    auto too_far = makeFlood(ROUTE_TYPE_TRANSPORT_FLOOD, PAYLOAD_TYPE_TXT_MSG, 3, 0);
+    EXPECT_TRUE(isFloodHopLimitExceeded(&too_far, 64, 3, 8));
 }
 
 TEST(ReplyRoute, FloodRequestGetsAPathReturn) {

@@ -30,8 +30,9 @@ commando's die DMC bovenop upstream toevoegt staan in [Custom CLI](custom-cli.md
 DutchMeshCore is een downstream-only fork van
 [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCore). Wijzigingen komen
 vanuit upstream binnen, nooit andersom. De basisbranch is `dmc-dev`, momenteel
-gesynchroniseerd met upstream firmware `v1.17.1` met DMC-patchrevisie `.01` (builds
-dragen het merk `v1.17.1.01-dutchmeshcore.nl-<hash>`). Deze site documenteert de
+gesynchroniseerd met upstream firmware `v1.18.0` (bronversie `v1.18.0.01`). Builds
+melden bijvoorbeeld `v1.18.0-dutchmeshcore.nl-<hash>`; dev-builds dragen een
+kanaalmarkering: `v1.18.0-dev-dutchmeshcore.nl-<hash>`. Deze site documenteert de
 DMC-toevoegingen; voor algemene MeshCore-concepten verwijzen we naar het
 upstream-project.
 

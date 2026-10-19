@@ -45,8 +45,9 @@ pio device monitor --port <PORT> --baud 115200
 
 ## Release-artige Builds
 
-`build.sh` erzeugt gekennzeichnete Artefakte mit der markanten Versionskennung
-`v1.17.1.01-dutchmeshcore.nl-<hash>`.
+`build.sh` erzeugt gekennzeichnete Artefakte. Mit `FIRMWARE_VERSION=v1.18.0` meldet der Node
+`v1.18.0-dutchmeshcore.nl-<hash>` in `ver`, mit `DMC_CHANNEL=dev`
+`v1.18.0-dev-dutchmeshcore.nl-<hash>`. Der Dateiname bleibt `<env>-v1.18.0-<hash>.bin`.
 
 ## Funk-Standardwerte
 

@@ -15,7 +15,8 @@ flasht du mit dem Web-Flasher.
 ## Firmware-Tracks
 
 DMC hat drei Tracks, jeweils auf einem Branch basierend. Alle drei sind Repeater-Firmware;
-DMC liefert keine Companion-Firmware.
+DMC liefert keine Companion-Firmware. Für einen Companion mit Empfangsfilter, SNMP und OTA
+siehe [Meshcomod (EV Fork)](https://github.com/Elektr0Vodka/meshcomod) (Pre-Release, auch im Toolbox-Flasher).
 
 | Track (Branch) | Was es ist | Enthält |
 | --- | --- | --- |
@@ -25,6 +26,15 @@ DMC liefert keine Companion-Firmware.
 
 Im Observer-Track bekommen Repeater alles; Room Server bekommen MQTT und OTA, aber keinen
 Filter, da ein Room Server per Definition nicht repeatet.
+
+## Stabile und Dev-Releases
+
+- **Stabil**: ein Release pro Version, zum Beispiel `dmc-repeater-v1.17.1`.
+- **Dev**: rollierende Pre-Releases, die vom Branch an Ort und Stelle neu gebaut werden:
+  `dmc-repeater-dev`, `dmc-repeater-packetlog-dev` und `observer-mqtt-dev`. Sie laufen jetzt
+  auf `v1.18.0` (Upstream-MeshCore v1.18.0, zusammengeführt am 2026-10-15). Ein Dev-Build
+  meldet `v1.18.0-dev-dutchmeshcore.nl-<hash>` in `ver`; der Dateiname hat kein `-dev`.
+  Der Toolbox-Flasher zeigt sie als `1.18.0-dev`.
 
 ## Dateiauswahl
 

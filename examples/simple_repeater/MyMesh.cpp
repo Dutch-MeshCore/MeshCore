@@ -1089,8 +1089,8 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
 
   // duty-cycle region gating defaults (feature is opt-in, off by default)
   _prefs.dc_gate_enabled = 0;
-  _prefs.dc_gate_threshold = 70;  // start gating above 70% TX duty cycle
-  _prefs.dc_gate_hysteresis = 10; // recover below 60%
+  _prefs.dc_gate_threshold = 35;  // start gating above 35% true TX duty cycle
+  _prefs.dc_gate_hysteresis = 10; // recover below 25%
 
   // bridge defaults
   _prefs.bridge_enabled = 1;    // enabled
