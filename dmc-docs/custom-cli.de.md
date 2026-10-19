@@ -84,19 +84,25 @@ Kein OTA auf Boards mit 4 MB Flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1
 ## Duty-Cycle-Region-Gating
 
 `dc.gate.*`. Standardmäßig **aus**. Wirft Inter-Regions-Flood-Verkehr ab, wenn der
-Repeater den größten Teil seines Duty-Cycle-Budgets verbraucht hat. Transient: wird nie in
+Repeater einen großen Teil der Zeit sendet. Transient: wird nie in
 die Regionskonfiguration geschrieben. Läuft vor dem Packet-Filter, daher erscheinen diese
 Drops nicht in `filter stats`.
 
 - `set dc.gate <on|off>` / `get dc.gate` (`1`/`0` funktionieren auch)
-- `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (Standard 70)
+- `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (Standard 35)
 - `set dc.gate.hyst <0-50>` / `get dc.gate.hyst` (Standard 10)
-- `get dc.gate.status` (z. B. `duty 74%, gate level 2/4`)
+- `get dc.gate.status` (z. B. `duty 41%, gate level 2/4`)
 
-Schwelle, Hysterese und `duty` sind ein Prozentsatz des **Duty-Cycle-Budgets**
-(`set dutycycle`), nicht der Uhrzeit. Mit `dutycycle 10` darf der Repeater 360 Sekunden
-pro Stunde senden; `dc.gate.thresh 70` beginnt mit dem Gating, sobald 252 dieser Sekunden
-verbraucht sind. Die Schwelle muss also nicht unter dem Duty-Cycle-Limit liegen.
+Schwelle, Hysterese und `duty` sind der **echte TX-Duty-Cycle**: der Anteil der Uhrzeit,
+in dem der Repeater in den letzten 60 Sekunden gesendet hat. Das ist nicht dasselbe wie
+das Duty-Cycle-Limit (`set dutycycle`): Es gilt pro Stunde, aus einer Sendezeitreserve,
+die der Repeater in Spitzen aufbrauchen darf. Mit `dutycycle 10` (360 Sekunden pro
+Stunde) bleibt normaler Verkehr deutlich unter 35 %; ein Repeater, der 35 % der Zeit
+sendet, hat die Reserve in etwa 24 Minuten aufgebraucht, und das Gating greift vorher
+ein. Auf einem 1-%-Subband ist `10`-`15` eine bessere Schwelle.
+
+Frühere DMC-Builds maßen einen Prozentsatz des Duty-Cycle-Budgets (Standard 70). Dieser
+Wert wird nach dem Update nicht übernommen; die Schwelle beginnt dann bei 35.
 
 ## Duty-Cycle
 
