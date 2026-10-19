@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "CommonCLI.h"
 #include "DutyCycleLimits.h"
+#include "GpsDefault.h"
 #include "TxtDataHelpers.h"
 #include "AdvertDataHelpers.h"
 #include "TxtDataHelpers.h"
@@ -45,6 +46,11 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
   //    fs->remove("/com_prefs");  // remove old
     }
   }
+#ifdef GPS_DEFAULT_ON
+  if (applyGpsDefaultOn(_prefs->gps_enabled, _prefs->gps_default_applied)) {
+    savePrefs(fs);
+  }
+#endif
 }
 
 void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy prefs loader
@@ -137,9 +143,11 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy 
     _prefs->radio_fem_txgain = constrain(_prefs->radio_fem_txgain, 0, 1); // boolean
     _prefs->cad_enabled = constrain(_prefs->cad_enabled, 0, 1); // boolean
 
-    // duty-cycle region gating
+    // duty-cycle region gating. dc_gate_threshold is a true TX duty cycle
+    // percent (share of wall-clock time spent transmitting; see
+    // Dispatcher::getTxDutyCyclePercent), NOT the old "% of airtime budget".
     _prefs->dc_gate_enabled = constrain(_prefs->dc_gate_enabled, 0, 1);       // boolean
-    _prefs->dc_gate_threshold = constrain(_prefs->dc_gate_threshold, 1, 100); // percent
+    _prefs->dc_gate_threshold = constrain(_prefs->dc_gate_threshold, 1, 100); // true TX duty cycle %
     _prefs->dc_gate_hysteresis = constrain(_prefs->dc_gate_hysteresis, 0, 50);// percent margin
 
     file.close();

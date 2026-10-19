@@ -40,6 +40,25 @@ get mqtt.status
 
 Aktiviere bei Bedarf das [Webpanel](web-panel.md), um den Status zu bestätigen.
 
+## Von meshcomod (Companion)
+
+Ein Companion, der von meshcomod auf die DMC-Companion-Firmware wechselt, behält Identität,
+Kontakte, Kanäle und Einstellungen, einschließlich CAD-Schalter und WLAN-Netz. Beim ersten Start
+liest die DMC-Firmware die meshcomod-Einstellungen einmal ein und speichert sie im eigenen Format.
+
+- Flashe das **Update-Image** (`*.bin`, an `0x10000`), nicht `*-merged.bin`: Das Merged-Image
+  löscht den NVS-Bereich, in dem meshcomod die WLAN-Zugangsdaten ablegt. Alles andere bleibt so
+  oder so erhalten.
+- Hat sich meshcomod je per OTA aktualisiert, läuft es eventuell aus dem zweiten App-Slot. Lösche
+  dann auch die Boot-Auswahl, sonst startet das Gerät weiter meshcomod:
+
+```text
+esptool.py --chip esp32s3 erase_region 0xe000 0x2000
+esptool.py --chip esp32s3 write_flash 0x10000 <firmware>.bin
+```
+
+- Daten, die meshcomod auf einer SD-Karte ablegt (Launcher-Installationen), werden nicht übernommen.
+
 ## Letzter Ausweg
 
 Läuft es nicht stabil, führe eine vollständige Löschung durch und flashe die

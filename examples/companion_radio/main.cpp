@@ -291,6 +291,7 @@ void setup() {
 
 void loop() {
   the_mesh.loop();
+  the_mesh.dmcNetLoop();   // DMC companion SNMP / OTA
   interface_manager.loop();
   sensors.loop();
 #ifdef DISPLAY_CLASS

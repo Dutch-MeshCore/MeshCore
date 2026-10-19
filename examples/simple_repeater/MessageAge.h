@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Timestamp checks on decrypted group text: the malformed scan's sanity window
 // and the configurable `filter age` limit. Header-only and clock-free (the
@@ -36,5 +38,22 @@ namespace MessageAge {
   inline bool tooOld(uint32_t ts, uint32_t now, uint16_t max_mins) {
     if (max_mins == 0 || !clockSet(now)) return false;
     return ts < now && now - ts > (uint32_t)max_mins * 60UL;
+  }
+
+  // CLI argument of `filter age`: minutes (0 also means off) or "off".
+  inline bool parseMins(const char* v, uint16_t* out) {
+    if (v == nullptr || out == nullptr) return false;
+    if (strcmp(v, "off") == 0) {
+      *out = 0;
+      return true;
+    }
+    if (v[0] == '\0') return false;
+    for (const char* c = v; *c; c++) {
+      if (*c < '0' || *c > '9') return false;
+    }
+    long mins = atol(v);
+    if (mins < 0 || mins > FILTER_AGE_MAX_MINS) return false;
+    *out = (uint16_t)mins;
+    return true;
   }
 }

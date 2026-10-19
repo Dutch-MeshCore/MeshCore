@@ -48,22 +48,61 @@ ACL-contactpakketten worden overgeslagen. De status wordt bewaard in `/filter_pr
 | `04` | ADVERT | `10` | MULTIPART |
 | `05` | GRP_TXT | `11` | CONTROL |
 
+## Companion filter
+
+`filter ...` op de **companion**-firmware: verbergt rommel en ongewenste kanaalberichten voor de
+app. Te versturen via de commandoconsole van de app, USB-serieel of remote CLI. Standaard **uit**;
+directe berichten worden nooit gefilterd. Opgeslagen in `/cfilter.json`. Zie
+[`docs/companion_filter_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_filter_reference.md).
+
+- `filter`: status en totalen per reden
+- `filter help` / `filter on` / `filter off` / `filter reset`
+- `filter malformed on|off` (foute tijdstempel, lege tekst of ongeldige UTF-8, op elk kanaal dat je hebt)
+- `filter age <minuten>|off` (1-10080; groepsberichten ouder dan dit)
+- `filter path list|add|remove <hex>` (max. 8; adverts en groepsverkeer via die repeater)
+- `filter sender add <naam> [secs] [prob]` / `remove` / `list` (max. 8; `Bot*` = prefix)
+- `filter text add <patroon> [secs] [prob]` / `remove` / `list` (max. 8; `^` = begin van het bericht)
+- `filter stats malformed|age|path|sender|text`
+
+Met repeat aan worden malformed/age/path-berichten ook niet doorgestuurd; sender/text-regels
+verbergen een bericht alleen voor jou en het wordt nog steeds doorgestuurd voor anderen.
+
+## Companion SNMP, OTA en MAC
+
+Op **companion**-builds die met wifi kunnen verbinden (ESP32 `*_companion_radio_wifi`, en de
+ESP32 `*_companion_radio_ble`-boards met wifi). Opgeslagen in `/cnet.json`. Zie
+[`docs/companion_snmp_ota_reference.md`](https://github.com/Dutch-MeshCore/MeshCore/blob/dmc-dev/docs/companion_snmp_ota_reference.md).
+
+- `get snmp` / `set snmp on|off` (standaard **uit**; UDP 161, alleen lezen, OID-indeling van de observer)
+- `get snmp.status` / `get snmp.community` / `set snmp.community <tekst>` (standaard `public`)
+- `ota check` / `ota update` / `ota status` (DutchMeshCore OTA-server, HTTPS)
+- `ota branch` / `ota branch stable|dev|default`
+- `get mac` / `get wifi.mac` / `get ble.mac` (elke ESP32-build)
+
+Geen OTA op boards met 4 MB flash (ThinkNode M2/M5, Xiao C3, LilyGo T-LoRa V2.1). Een nieuwe partitietabel, of een board zonder tweede app-slot, heeft nog steeds een USB-flash nodig.
+
 ## Duty-cycle region gating
 
 `dc.gate.*`. Standaard **uit**. Werpt inter-regio-floodverkeer af wanneer de repeater
-het grootste deel van zijn duty-cycle-budget heeft verbruikt. Transient: wordt nooit naar
+een groot deel van de tijd zendt. Transient: wordt nooit naar
 de regioconfiguratie weggeschreven. Draait vóór de packet filter, dus deze drops
 verschijnen niet in `filter stats`.
 
 - `set dc.gate <on|off>` / `get dc.gate` (`1`/`0` werkt ook)
-- `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (standaard 70)
+- `set dc.gate.thresh <1-100>` / `get dc.gate.thresh` (standaard 35)
 - `set dc.gate.hyst <0-50>` / `get dc.gate.hyst` (standaard 10)
-- `get dc.gate.status` (bijv. `duty 74%, gate level 2/4`)
+- `get dc.gate.status` (bijv. `duty 41%, gate level 2/4`)
 
-De drempel, de hysterese en `duty` zijn een percentage van het **duty-cycle-budget**
-(`set dutycycle`), niet van de kloktijd. Met `dutycycle 10` mag de repeater 360 seconden
-per uur zenden; `dc.gate.thresh 70` start de gating zodra 252 van die seconden zijn
-verbruikt. De drempel hoeft dus niet onder de duty-cycle-limiet te liggen.
+De drempel, de hysterese en `duty` zijn de **echte TX-duty-cycle**: het deel van de
+kloktijd dat de repeater de afgelopen 60 seconden zond. Dat is iets anders dan de
+duty-cycle-limiet (`set dutycycle`): die geldt per uur, uit een zendtijdreserve die de
+repeater in pieken mag opmaken. Met `dutycycle 10` (360 seconden per uur) blijft normaal
+verkeer ruim onder 35%; een repeater die 35% van de tijd zendt, heeft de reserve in
+ongeveer 24 minuten op, en de gating grijpt eerder in. Op een 1%-subband is `10`-`15`
+een betere drempel.
+
+Eerdere DMC-builds maten een percentage van het duty-cycle-budget (standaard 70). Die
+waarde wordt na de update niet overgenomen; de drempel begint dan op 35.
 
 ## Duty cycle
 
@@ -88,6 +127,13 @@ Alleen op ESP32 observer-builds.
   `config`-topic, opgeslagen in `/mqtt.json`), `set mqtt.filter.interval <60-600>`,
   `set mqtt.neighbors <on|off>` + `set mqtt.neighbors.interval <uren>` (alleen met PSRAM)
 - **NTP**: `set mqtt.ntp <host|none>`, `get mqtt.ntp.diag`
+- **Netwerkverbinding**: `get link.status` (medium, verbinding, IP, signaal en uptime;
+  vervangt `get wifi.status`), `get link.diag` (waarom Ethernet of wifi is gekozen,
+  ThinkNode M7-Ethernet-builds), `get link.dns` (actieve DNS-resolvers en gateway)
+- **Advertcontrole**: `set mqtt.advert.verify <on|off>` / `get mqtt.advert.verify`
+  (publiceer geen adverts waarvan de handtekening niet klopt; standaard `off`)
+- **Handmatige OTA**: `stop ota` (stopt een inactieve `start ota`-webserver en geeft
+  poort 80 vrij; weigert tijdens een upload)
 
 Gepubliceerde topics (suffixen op een gemeenschappelijk prefix): `status`, `packets`,
 `filter`, `neighbors`, `config`.

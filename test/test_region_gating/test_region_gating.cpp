@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "helpers/RegionMap.h"
+#include <string.h>
 
 // Unit tests for duty-cycle region gating (issue #2747).
 // These exercise the pure hierarchy/level logic; no crypto or filesystem is touched.
@@ -221,6 +222,55 @@ TEST_F(NlChainGating, RecoveryRestoresConfiguredBehaviour) {
   rm.applyDutyGate(0);
   EXPECT_FALSE(eu->rt_flags & REGION_DENY_FLOOD);
   EXPECT_FALSE(eu->effectiveFlags() & REGION_DENY_FLOOD);   // flood allowed again
+}
+
+// ---------- transport code 0 (upstream #3568: 'treat code 0 the same as un-scoped') ----------
+// Code 0 maps to the wildcard, so it must obey the wildcard's flags (config denyf and the
+// runtime duty gate) exactly like a plain un-scoped flood, instead of bypassing them.
+
+static mesh::Packet makeTransportFlood(uint16_t code0, uint16_t code1 = 0) {
+  mesh::Packet p;
+  p.header = ROUTE_TYPE_TRANSPORT_FLOOD | (PAYLOAD_TYPE_TXT_MSG << PH_TYPE_SHIFT);
+  p.payload_len = 4;
+  memcpy(p.payload, "abcd", 4);
+  p.transport_codes[0] = code0;
+  p.transport_codes[1] = code1;
+  return p;
+}
+
+TEST_F(NlChainGating, ZeroCodeMatchesWildcardWhenWildcardAllowsFlood) {
+  auto pkt = makeTransportFlood(0);
+  EXPECT_EQ(rm.findMatch(&pkt, REGION_DENY_FLOOD), &rm.getWildcard());
+}
+
+TEST_F(NlChainGating, ZeroCodeIsDeniedWhenWildcardDeniesFlood) {
+  rm.getWildcard().flags |= REGION_DENY_FLOOD;   // 'region denyf *'
+  auto pkt = makeTransportFlood(0);
+  EXPECT_EQ(rm.findMatch(&pkt, REGION_DENY_FLOOD), nullptr);
+}
+
+TEST_F(NlChainGating, ZeroCodeIsDeniedWhileDutyGateHoldsWildcard) {
+  rm.applyDutyGate(1);   // runtime gate on '*', config still allows flood
+  auto pkt = makeTransportFlood(0);
+  EXPECT_EQ(rm.findMatch(&pkt, REGION_DENY_FLOOD), nullptr);
+}
+
+TEST_F(NlChainGating, ZeroCodeWithReturnRegionHintIsStillUnscoped) {
+  rm.getWildcard().flags |= REGION_DENY_FLOOD;
+  auto pkt = makeTransportFlood(0, 0x1234);   // codes[1] carries a hint, codes[0] is still 0
+  EXPECT_EQ(rm.findMatch(&pkt, REGION_DENY_FLOOD), nullptr);
+}
+
+TEST_F(NlChainGating, NamedRegionStillMatchesWhenWildcardDeniesFlood) {
+  rm.getWildcard().flags |= REGION_DENY_FLOOD;
+  RegionEntry* nl = rm.findByName("nl");
+  nl->flags &= (uint8_t)~REGION_DENY_FLOOD;      // 'region allowf nl'
+
+  auto pkt = makeTransportFlood(0);
+  TransportKey key;
+  ASSERT_EQ(rm.getTransportKeysFor(*nl, &key, 1), 1);
+  pkt.transport_codes[0] = key.calcTransportCode(&pkt);
+  EXPECT_EQ(rm.findMatch(&pkt, REGION_DENY_FLOOD), nl);
 }
 
 int main(int argc, char** argv) {

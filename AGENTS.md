@@ -31,13 +31,15 @@ upstream project and are wrong here on three points:
 | "Reference any related issue (`Fixes #123`)" | Not possible while issues are disabled. |
 
 **In practice this fork is a set of repeater airtime-control features** layered on the upstream
-base (currently synced to `mc/dev`, embedded firmware version `v1.17.1.01`):
+base (currently synced to upstream `v1.18.0`, embedded firmware version `v1.18.0.01`):
 
 - the **repeater packet filter** — `examples/simple_repeater/Filter.{cpp,h}` plus header-only
   `FilterStats.h` / `Limiter.h` (drop statistics + probabilistic soft cutoff);
 - **duty-cycle region gating** (`dc.gate.*`) — `test/test_region_gating/`, wired through
   `RegionMap.*`, `Dispatcher.*`, `MyMesh.*` and the radio-prefs CLI;
 - a **frequency-derived duty-cycle default** (`set dutycycle auto`) — `src/helpers/DutyCycleLimits.{cpp,h}`.
+- a **companion receive filter** (`filter ...` on companions) — `examples/companion_radio/CompanionFilter*`,
+  reusing the repeater filter's header-only rule engine; see `docs/companion_filter_reference.md`.
 
 Most of it lives in DMC-only files (see §2). The rest is two DMC build workflows, `build.sh`,
 `scripts/publish-release.sh`, and a handful of small variant and radio tweaks.
@@ -62,12 +64,17 @@ not a side effect. Grouped by what pulls them in:
 ```
 build / release   build.sh, platformio.ini
 packet filter     examples/simple_repeater/MyMesh.{cpp,h}, docs/cli_commands.md
+companion filter  examples/companion_radio/MyMesh.{cpp,h}, docs/cli_commands.md
+companion net     examples/companion_radio/{MyMesh.{cpp,h},main.cpp}, build.sh,
+                  variants/*/platformio.ini (SNMP lib_deps), docs/cli_commands.md
 region gating     src/Dispatcher.{cpp,h}, src/helpers/RegionMap.{cpp,h},
                   src/helpers/CommonCLI.{cpp,h}, test/mocks/{Arduino,SHA256,Stream}.h
 duty-cycle auto   src/helpers/CommonRadioPrefs.{cpp,h}, src/helpers/CommonCLI.{cpp,h},
                   examples/simple_repeater/MyMesh.h, examples/simple_room_server/MyMesh.h,
                   examples/simple_secure_chat/main.cpp,
                   examples/companion_radio/{MyMesh.cpp,NodePrefs.h}, examples/simple_sensor/SensorMesh.cpp
+gps default on    src/helpers/CommonCLI.{cpp,h}, examples/companion_radio/{MyMesh.cpp,NodePrefs.h},
+                  variants/sensecap_solar/platformio.ini, docs/cli_commands.md
 variant tweaks    variants/minewsemi_me25ls01/platformio.ini, variants/tenstar_c3/target.h
 ```
 

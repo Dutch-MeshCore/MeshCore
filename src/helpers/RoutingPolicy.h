@@ -5,10 +5,19 @@
 namespace mesh {
 
 /**
+ * \brief  Is this an un-scoped flood?  ROUTE_TYPE_FLOOD, or a TRANSPORT_FLOOD carrying transport
+ *         code 0, which RegionMap::findMatch() treats the same as un-scoped.
+ */
+inline bool isUnscopedFlood(const Packet* packet) {
+  if (packet->getRouteType() == ROUTE_TYPE_FLOOD) return true;
+  return packet->getRouteType() == ROUTE_TYPE_TRANSPORT_FLOOD && packet->transport_codes[0] == 0;
+}
+
+/**
  * \brief  Test a flood packet against the configured hop limits.
  * \param  packet  inbound flood packet (caller has already checked isRouteFlood())
  * \param  flood_max            max hops for any flood packet
- * \param  flood_max_unscoped   max hops for ROUTE_TYPE_FLOOD (ie. un-scoped) packets
+ * \param  flood_max_unscoped   max hops for un-scoped packets (see isUnscopedFlood())
  * \param  flood_max_advert     max hops for ADVERT packets
  * \returns  true if the packet has exceeded a limit, and must not be forwarded
  */
@@ -16,7 +25,7 @@ inline bool isFloodHopLimitExceeded(const Packet* packet, uint8_t flood_max,
                                     uint8_t flood_max_unscoped, uint8_t flood_max_advert) {
   uint8_t hops = packet->getPathHashCount();
   if (hops >= flood_max) return true;
-  if (packet->getRouteType() == ROUTE_TYPE_FLOOD && hops >= flood_max_unscoped) return true;
+  if (isUnscopedFlood(packet) && hops >= flood_max_unscoped) return true;
   if (packet->getPayloadType() == PAYLOAD_TYPE_ADVERT && hops >= flood_max_advert) return true;
   return false;
 }
