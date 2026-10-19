@@ -775,8 +775,8 @@ bool Filter::load(FILESYSTEM* fs) {
     _prefs.payload_prefs[i].hops_max = constrain(_prefs.payload_prefs[i].hops_max, 0, 64);
     // a soft cutoff at/above the hard limit leaves no ramp room -> treat as off
     if (_prefs.soft_limit[i] >= _prefs.payload_prefs[i].rate_limit) _prefs.soft_limit[i] = 0;
-    _limiters[i].init(_prefs.payload_prefs[i].rate_limit, _prefs.payload_prefs[i].rate_secs, _prefs.soft_limit[i]);
   }
+  initLimiters();
   _prefs.minimal_hash_bytes = constrain(_prefs.minimal_hash_bytes, 1, 3);
   _prefs.filter_malformed = constrain(_prefs.filter_malformed, 0, 1);
   _prefs.dryrun = constrain(_prefs.dryrun, 0, 1);
