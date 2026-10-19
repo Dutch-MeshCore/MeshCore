@@ -358,7 +358,7 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
     // Opt-in publish of the node config to the `config` topic. Accepts 1/on.
     _mqtt_prefs.mqtt_config_enabled =
         (config[12] == '1' || memcmp(&config[12], "on", 2) == 0) ? 1 : 0;
-    savePrefs();
+    if (!persistObserverPrefs(reply)) return true;
     strcpy(reply, "OK");
   } else if (memcmp(config, "mqtt.tx ", 8) == 0) {
     if (memcmp(&config[8], "advert", 6) == 0) {
@@ -392,7 +392,7 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
     uint32_t secs = _atoi(&config[21]);
     if (secs == 0) {
       _mqtt_prefs.mqtt_filter_interval = 0;
-      savePrefs();
+      if (!persistObserverPrefs(reply)) return true;
       _callbacks->restartBridge();
       strcpy(reply, "OK - filter stats publishing disabled, bridge restarted");
     } else {
@@ -400,7 +400,7 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
       if (ms < MQTT_FILTER_STATS_MIN_INTERVAL_MS) ms = MQTT_FILTER_STATS_MIN_INTERVAL_MS;
       if (ms > MQTT_FILTER_STATS_MAX_INTERVAL_MS) ms = MQTT_FILTER_STATS_MAX_INTERVAL_MS;
       _mqtt_prefs.mqtt_filter_interval = ms;
-      savePrefs();
+      if (!persistObserverPrefs(reply)) return true;
       _callbacks->restartBridge();
       sprintf(reply, "OK - filter interval set to %lu s (%lu ms), bridge restarted",
               (unsigned long)(ms / 1000), (unsigned long)ms);
@@ -693,7 +693,7 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
         return true;
       }
       _mqtt_prefs.mqtt_slot_extras[slot] = mask;
-      savePrefs();
+      if (!persistObserverPrefs(reply)) return true;
       sprintf(reply, "OK - slot %d extras %s", slot + 1, v);
     } else {
       sprintf(reply, "unknown config: %s", config);
