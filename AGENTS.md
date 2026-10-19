@@ -73,6 +73,8 @@ duty-cycle auto   src/helpers/CommonRadioPrefs.{cpp,h}, src/helpers/CommonCLI.{c
                   examples/simple_repeater/MyMesh.h, examples/simple_room_server/MyMesh.h,
                   examples/simple_secure_chat/main.cpp,
                   examples/companion_radio/{MyMesh.cpp,NodePrefs.h}, examples/simple_sensor/SensorMesh.cpp
+gps default on    src/helpers/CommonCLI.{cpp,h}, examples/companion_radio/{MyMesh.cpp,NodePrefs.h},
+                  variants/sensecap_solar/platformio.ini, docs/cli_commands.md
 variant tweaks    variants/minewsemi_me25ls01/platformio.ini, variants/tenstar_c3/target.h
 ```
 
