@@ -1110,15 +1110,24 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
     const bool connected = network.isConnected();
     if (connected) {
       const int signal = network.rssi();
+      // Omitted entirely without an IPv6 address, so IPv4-only replies keep
+      // their old shape. A full address still leaves room for the uptime below.
+      char ip6[48];
+      char ip6_part[56] = "";
+      if (network.localIPv6(ip6, sizeof(ip6))) {
+        snprintf(ip6_part, sizeof(ip6_part), ", IPv6: %s", ip6);
+      }
       if (wifi_alias) {
-        snprintf(reply, 160, "> %s, IP: %s, RSSI: %d dBm",
-                 network.statusName(), network.localIP().toString().c_str(), signal);
+        snprintf(reply, 160, "> %s, IP: %s%s, RSSI: %d dBm",
+                 network.statusName(), network.localIP().toString().c_str(), ip6_part,
+                 signal);
       } else if (signal == INT_MIN) {
-        snprintf(reply, 160, "> %s: connected, IP: %s", network.mediumName(),
-                 network.localIP().toString().c_str());
+        snprintf(reply, 160, "> %s: connected, IP: %s%s", network.mediumName(),
+                 network.localIP().toString().c_str(), ip6_part);
       } else {
-        snprintf(reply, 160, "> %s: connected, IP: %s, RSSI: %d dBm",
-                 network.mediumName(), network.localIP().toString().c_str(), signal);
+        snprintf(reply, 160, "> %s: connected, IP: %s%s, RSSI: %d dBm",
+                 network.mediumName(), network.localIP().toString().c_str(), ip6_part,
+                 signal);
       }
 #ifdef WITH_MQTT_BRIDGE
       unsigned long connect_at = MQTTBridge::getWifiConnectedAtMillis();

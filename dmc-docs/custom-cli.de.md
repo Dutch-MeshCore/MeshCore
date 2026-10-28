@@ -128,7 +128,7 @@ Nur auf ESP32-Observer-Builds.
   `set mqtt.neighbors <on|off>` + `set mqtt.neighbors.interval <Stunden>` (nur mit PSRAM)
 - **NTP**: `set mqtt.ntp <host|none>`, `get mqtt.ntp.diag`
 - **Netzwerkverbindung**: `get link.status` (Medium, Verbindung, IP, Signal und Uptime;
-  ersetzt `get wifi.status`), `get link.diag` (warum Ethernet oder WiFi gewählt wurde,
+  ersetzt `get wifi.status`; zeigt auch die IPv6-Adresse, wenn der Node eine hat), `get link.diag` (warum Ethernet oder WiFi gewählt wurde,
   ThinkNode-M7-Ethernet-Builds), `get link.dns` (aktive DNS-Resolver und Gateway)
 - **Advert-Prüfung**: `set mqtt.advert.verify <on|off>` / `get mqtt.advert.verify`
   (Adverts mit ungültiger Signatur nicht veröffentlichen; Standard `off`)

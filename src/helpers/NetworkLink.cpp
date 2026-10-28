@@ -2,6 +2,7 @@
 
 #if defined(ESP_PLATFORM)
 
+#include "ESP32Ipv6Preference.h"
 #include "MQTTConnectionPolicy.h"
 #include "WifiPowerSavePolicy.h"
 
@@ -10,6 +11,7 @@
 #include <cstring>
 
 #include <WiFi.h>
+#include <esp_arduino_version.h>
 #include <esp_wifi.h>
 #include <esp_netif.h>
 #include <lwip/dns.h>
@@ -29,6 +31,12 @@ extern void tcpipInit();
   #define NETWORK_DEBUG_PRINTLN(F, ...) do { if (Serial.availableForWrite() > 0) { Serial.printf("MQTT: " F "\n", ##__VA_ARGS__); } } while (0)
 #else
   #define NETWORK_DEBUG_PRINTLN(...) do {} while (0)
+#endif
+
+// Stateless autoconfig on the Wi-Fi station, so broker lookups can prefer AAAA
+// (see ESP32Ipv6Preference.cpp). -D MQTT_WIFI_IPV6=0 keeps the station IPv4-only.
+#ifndef MQTT_WIFI_IPV6
+#define MQTT_WIFI_IPV6 1
 #endif
 
 namespace {
@@ -292,10 +300,28 @@ class WiFiNetworkLink final : public NetworkLinkBase {
     if (_hostname[0] != '\0') WiFi.setHostname(_hostname);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
+#if MQTT_WIFI_IPV6 && ESP_ARDUINO_VERSION_MAJOR >= 3
+    // Core 3.x keeps this as a flag the station applies when it starts.
+    WiFi.enableIPv6(true);
+#endif
 
     if (!_event_registered) {
       WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
         switch (event) {
+#if MQTT_WIFI_IPV6 && ESP_ARDUINO_VERSION_MAJOR < 3
+          case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+            // Core 2.x creates the link-local address only on request, and only
+            // once the netif is up, which is this event. SLAAC (compiled into
+            // the SDK's lwIP) then adds global addresses from router adverts.
+            if (!WiFi.enableIpV6()) NETWORK_DEBUG_PRINTLN("WiFi IPv6 enable failed");
+            break;
+#endif
+#if MQTT_WIFI_IPV6
+          case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
+            NETWORK_DEBUG_PRINTLN("WiFi IPv6: " IPV6STR,
+                                  IPV62STR(info.got_ip6.ip6_info.ip));
+            break;
+#endif
           case ARDUINO_EVENT_WIFI_STA_GOT_IP:
             NETWORK_DEBUG_PRINTLN("WiFi connected: %s",
                 IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
@@ -304,6 +330,7 @@ class WiFiNetworkLink final : public NetworkLinkBase {
             break;
           case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
             noteDisconnected(millis(), info.wifi_sta_disconnected.reason);
+            Ipv6Preference::noteLinkChange();
             NETWORK_DEBUG_PRINTLN("WiFi disconnected: reason %d",
                                   info.wifi_sta_disconnected.reason);
             break;
@@ -383,16 +410,21 @@ class WiFiNetworkLink final : public NetworkLinkBase {
 
   bool isConnected() const override { return WiFi.status() == WL_CONNECTED; }
   IPAddress localIP() const override { return WiFi.localIP(); }
+  bool localIPv6(char* out, size_t out_size) const override {
+    return Ipv6Preference::formatStationAddress(out, out_size);
+  }
   int rssi() const override { return isConnected() ? WiFi.RSSI() : INT_MIN; }
   bool resolveHost(const char* hostname, IPAddress& address) const override {
     return WiFi.hostByName(hostname, address);
   }
   void formatDiagnostics(char* reply, size_t reply_size) const override {
+    char ip6[48];
+    localIPv6(ip6, sizeof(ip6));
     snprintf(reply, reply_size,
              "> why:ethernet-not-enabled selected:wifi\n"
-             "wifi:state:%s ip:%s",
+             "wifi:state:%s ip:%s ip6:%s v6:%s",
              statusName(),
-             localIP().toString().c_str());
+             localIP().toString().c_str(), ip6, Ipv6Preference::stateName());
   }
   void formatDns(char* reply, size_t reply_size) const override {
     formatDnsFor(reply, reply_size, WiFi.gatewayIP());
@@ -958,6 +990,11 @@ class AutomaticNetworkLink final : public NetworkLink {
     const NetworkMedium selected = _selected.load(std::memory_order_acquire);
     return selected == NetworkMedium::None ? IPAddress()
                                            : selectedInterface(selected).localIP();
+  }
+  bool localIPv6(char* out, size_t out_size) const override {
+    const NetworkMedium selected = _selected.load(std::memory_order_acquire);
+    if (selected == NetworkMedium::None) return NetworkLink::localIPv6(out, out_size);
+    return selectedInterface(selected).localIPv6(out, out_size);
   }
   int rssi() const override {
     const NetworkMedium selected = _selected.load(std::memory_order_acquire);

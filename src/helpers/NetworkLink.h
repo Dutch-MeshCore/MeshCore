@@ -56,6 +56,12 @@ class NetworkLink {
 
   virtual bool isConnected() const = 0;
   virtual IPAddress localIP() const = 0;
+  // First global (else unique-local) IPv6 address; writes "-" and returns
+  // false when the selected medium has none.
+  virtual bool localIPv6(char* out, size_t out_size) const {
+    if (out && out_size) snprintf(out, out_size, "-");
+    return false;
+  }
   virtual int rssi() const = 0;  // INT_MIN when the selected medium has no RSSI.
   virtual bool resolveHost(const char* hostname, IPAddress& address) const = 0;
   virtual void formatDiagnostics(char* reply, size_t reply_size) const = 0;

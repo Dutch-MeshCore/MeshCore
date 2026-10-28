@@ -620,11 +620,18 @@ These settings apply across all MQTT slots:
 #### Get Commands
 - `get wifi.ssid` - Get WiFi SSID
 - `get wifi.pwd` - Get WiFi password
-- `get link.status` - Get the selected network medium, connection status, IP, signal when available, and uptime
+- `get link.status` - Get the selected network medium, connection status, IP (plus IPv6 when the node has one), signal when available, and uptime
 - `get link.diag` - Explain automatic Ethernet selection using controller initialization, link event, IP, WiFi fallback, route-lock, and reason state
 - `get link.dns` - Show the live DNS resolver list, the selected medium's gateway, and the DNS each medium's DHCP lease installed (trailing empty slots are omitted; `-` = empty slot or empty list, `none` = never leased)
 - `get wifi.status` - WiFi-only compatibility alias; reports n/a when another medium is selected
 - `get wifi.powersave` - Get WiFi power save mode (none/min/max)
+
+> **IPv6:** the WiFi station autoconfigures IPv6 (SLAAC) from router advertisements. When it holds a
+> usable address and the broker has an AAAA record, MQTT connects over IPv6; otherwise it uses IPv4
+> as before. Two consecutive IPv6 connect failures (refused, unreachable, timeout) switch MQTT to IPv4
+> for 15 minutes, and a WiFi reconnect clears that. `get link.diag` on WiFi builds shows `ip6:` (the
+> address) and `v6:` (`none`, `preferred` or `suspended`). DNS still comes from DHCPv4, and NTP, OTA
+> and Ethernet stay IPv4-only. Build with `-D MQTT_WIFI_IPV6=0` to keep the station IPv4-only.
 
 #### Set Commands
 - `set wifi.ssid <ssid>` - Set WiFi SSID
