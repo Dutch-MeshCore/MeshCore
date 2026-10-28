@@ -954,6 +954,7 @@ void WebConfigServer::handleConfigGet(AsyncWebServerRequest* req) {
     wifi["ssid"] = (const char*)_obs->wifi_ssid;
     wifi["pwd"] = _obs->wifi_password[0] ? SECRET_SENTINEL : "";
     wifi["powersave"] = WifiPowerSavePolicy::nameFor(_obs->wifi_power_save);
+    wifi["ipv6"] = (bool)_obs->wifi_ipv6;
 
     JsonObject mqtt = doc.createNestedObject("mqtt");
     mqtt["origin"] = (const char*)_obs->mqtt_origin;

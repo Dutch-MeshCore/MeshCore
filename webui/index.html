@@ -483,6 +483,8 @@ body.tab-cli{padding-bottom:0}
       <div class="f"><label>Password</label><input type="password" data-k="wifi.pwd" maxlength="63" autocomplete="off"></div>
       <div class="f"><label>Power save</label>
         <select data-k="wifi.powersave"><option value="none">None (default, lowest latency)</option><option value="min">Minimum</option><option value="max">Maximum (battery)</option></select></div>
+      <div class="sw"><span><b>IPv6</b><i>Autoconfigure IPv6 and reach brokers over it when they have an AAAA record, falling back to IPv4. Off takes full effect after a WiFi reconnect</i></span>
+        <span class="tgl"><input type="checkbox" data-k="wifi.ipv6"><u></u></span></div>
     </div>
     <div class="card">
       <h2>Maintenance</h2>
@@ -710,7 +712,7 @@ function cfgVal(k){ // map a `set` key to its current value string, from st.cfg
     case"advert.interval":return String(r.advert_interval);
     case"flood.advert.interval":return String(r.flood_advert_interval);
     case"password":return"";
-    case"wifi.ssid":return w.ssid;case"wifi.pwd":return w.pwd;case"wifi.powersave":return w.powersave;
+    case"wifi.ssid":return w.ssid;case"wifi.pwd":return w.pwd;case"wifi.powersave":return w.powersave;case"wifi.ipv6":return w.ipv6===false?"off":"on";
     case"mqtt.origin":return q.origin;case"mqtt.iata":return q.iata;
     case"mqtt.status":return q.status?"on":"off";case"mqtt.packets":return q.packets?"on":"off";
     case"mqtt.raw":return q.raw?"on":"off";case"mqtt.tx":return q.tx;case"mqtt.rx":return q.rx?"on":"off";
@@ -1173,7 +1175,8 @@ function pollStats(){
       (s.wifi_rssi==null
         ? tile("Network",s.network_medium||"—","RSSI unavailable")
         : tile("WiFi RSSI",s.wifi_rssi,"dBm"))+
-      tile("IP",s.ip||"—");
+      tile("IP",s.ip||"—")+
+      (s.ip6?tile("IPv6",s.ip6):"");
     push(st.hist.heap,kb);push(st.hist.noise,s.noise);
     spark($("#spark-heap"),st.hist.heap);spark($("#spark-noise"),st.hist.noise);
     var sl=s.slots||[];
@@ -1563,6 +1566,7 @@ var CLI_KEYS=[
   ["wifi.ssid","WiFi network name",0],
   ["wifi.pwd","WiFi password",0],
   ["wifi.powersave","WiFi power-save mode",0,"none|min|max"],
+  ["wifi.ipv6","WiFi IPv6 (SLAAC, IPv6-first MQTT with IPv4 fallback)",0,"on|off"],
   ["link.status","Selected network, IP, signal and uptime",1],
   ["link.diag","Ethernet selection and fallback diagnostics",1],
   ["link.dns","DNS servers, gateway and per-network lease DNS",1],

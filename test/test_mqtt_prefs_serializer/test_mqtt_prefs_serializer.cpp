@@ -72,6 +72,7 @@ static MQTTPrefs defaults() {
   prefs.mqtt_rx_enabled = 1;
   prefs.mqtt_status_interval = 300000;
   prefs.wifi_power_save = 1;
+  prefs.wifi_ipv6 = 1;
   prefs.timezone_offset = -7;
   prefs.radio_watchdog_minutes = 5;
   prefs.alert_wifi_minutes = 30;
@@ -474,6 +475,44 @@ TEST(MQTTPrefsSerializer, AdvertVerifyDefaultsOffRoundTripsAndRepairs) {
   ASSERT_TRUE(bogus_serializer.apply(&repaired));
   EXPECT_TRUE(repaired);
   EXPECT_EQ(0, prefs.mqtt_advert_verify);
+}
+
+TEST(MQTTPrefsSerializer, WifiIpv6DefaultsOnRoundTripsAndRepairs) {
+  MQTTPrefs source = defaults();
+  EXPECT_EQ(1, source.wifi_ipv6);
+  source.wifi_ipv6 = 0;
+
+  OutputStream output;
+  MQTTPrefsSerializer writer(&source);
+  ASSERT_TRUE(writer.saveSerial(output));
+
+  MQTTPrefs loaded = defaults();
+  InputStream input(output.text());
+  MQTTPrefsSerializer reader(&loaded);
+  ASSERT_TRUE(reader.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(reader.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_EQ(0, loaded.wifi_ipv6);
+
+  // A file written before the key existed keeps the on default.
+  MQTTPrefs older = defaults();
+  InputStream legacy("{version:1,wifi:{power_save:1}}");
+  MQTTPrefsSerializer legacy_serializer(&older);
+  ASSERT_TRUE(legacy_serializer.loadSerial(legacy));
+  repaired = false;
+  ASSERT_TRUE(legacy_serializer.apply(&repaired));
+  EXPECT_EQ(1, older.wifi_ipv6);
+
+  MQTTPrefs prefs = defaults();
+  prefs.wifi_ipv6 = 0;
+  InputStream bogus("{version:1,wifi:{ipv6:7}}");
+  MQTTPrefsSerializer bogus_serializer(&prefs);
+  ASSERT_TRUE(bogus_serializer.loadSerial(bogus));
+  repaired = false;
+  ASSERT_TRUE(bogus_serializer.apply(&repaired));
+  EXPECT_TRUE(repaired);
+  EXPECT_EQ(MQTT_WIFI_IPV6, prefs.wifi_ipv6);
 }
 
 TEST(MQTTPrefsSerializer, RepairsDisplayTimeoutOutOfRange) {

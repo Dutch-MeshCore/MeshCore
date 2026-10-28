@@ -620,16 +620,28 @@ These settings apply across all MQTT slots:
 #### Get Commands
 - `get wifi.ssid` - Get WiFi SSID
 - `get wifi.pwd` - Get WiFi password
-- `get link.status` - Get the selected network medium, connection status, IP, signal when available, and uptime
+- `get link.status` - Get the selected network medium, connection status, IP (plus IPv6 when the node has one), signal when available, and uptime
 - `get link.diag` - Explain automatic Ethernet selection using controller initialization, link event, IP, WiFi fallback, route-lock, and reason state
 - `get link.dns` - Show the live DNS resolver list, the selected medium's gateway, and the DNS each medium's DHCP lease installed (trailing empty slots are omitted; `-` = empty slot or empty list, `none` = never leased)
 - `get wifi.status` - WiFi-only compatibility alias; reports n/a when another medium is selected
 - `get wifi.powersave` - Get WiFi power save mode (none/min/max)
+- `get wifi.ipv6` - Get whether IPv6 is enabled (on/off)
+
+> **IPv6:** with `wifi.ipv6 on` (the default) the WiFi station autoconfigures IPv6 (SLAAC) from
+> router advertisements. When it holds a usable address and the broker has an AAAA record, MQTT
+> connects over IPv6; otherwise it uses IPv4 as before. Two consecutive IPv6 connect failures
+> (refused, unreachable, timeout) switch MQTT to IPv4 for 15 minutes, and a WiFi reconnect clears
+> that. `get link.status` / `get wifi.status` and the web panel's Stats page show the address;
+> `get link.diag` shows `v6:` (`off`, `none`, `preferred` or `suspended`), plus `ip6:` on WiFi-only
+> builds. Debug builds log `MQTT: <host> -> IPv6|IPv4 <addr>` for every broker lookup. DNS still
+> comes from DHCPv4, and NTP, OTA and Ethernet stay IPv4-only. `-D MQTT_WIFI_IPV6=0` changes the
+> default for fresh installs to off.
 
 #### Set Commands
 - `set wifi.ssid <ssid>` - Set WiFi SSID
 - `set wifi.pwd <password>` - Set WiFi password
 - `set wifi.powersave none|min|max` - Set WiFi power save mode
+- `set wifi.ipv6 on|off` - IPv6 on the WiFi station with IPv6-first MQTT (default on). Off stops AAAA lookups at once; the station drops its IPv6 address on the next WiFi reconnect
 
 > **Note:** The value is everything after the first space (spaces in SSID/password are fine). Do not wrap in quotes — they are stored literally. Max length: 31 characters (SSID), 63 (password). For open networks, use `set wifi.pwd ` with nothing after the space.
   - `none` - No power saving (best performance, highest power consumption)

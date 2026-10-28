@@ -1596,11 +1596,13 @@ void MyMesh::onConfigBatchEnd() {
 // same sources as the REQ_TYPE_GET_STATUS reply and `get mqtt.stats`.
 void MyMesh::buildStatsJson(char* buf, size_t buf_size) {
   char ip[20] = "";
+  char ip6[48] = "";  // empty without a global/ULA address
   char wifi_rssi[12] = "null";
   NetworkLink& network = activeNetworkLink();
   const char* network_medium = network.mediumName();
   if (network.isConnected()) {
     strncpy(ip, network.localIP().toString().c_str(), sizeof(ip) - 1);
+    if (!network.localIPv6(ip6, sizeof(ip6))) ip6[0] = '\0';
     const int signal = network.rssi();
     if (signal != INT_MIN) snprintf(wifi_rssi, sizeof(wifi_rssi), "%d", signal);
   }
@@ -1616,7 +1618,7 @@ void MyMesh::buildStatsJson(char* buf, size_t buf_size) {
       "\"recv\":%lu,\"sent\":%lu,\"rx_err\":%lu,"
       "\"sent_flood\":%lu,\"sent_direct\":%lu,\"recv_flood\":%lu,\"recv_direct\":%lu,"
       "\"tx_queue\":%d,\"wifi_rssi\":%s,\"network_medium\":\"%s\","
-      "\"ip\":\"%s\",\"mqtt_queue\":%d,\"slots\":[",
+      "\"ip\":\"%s\",\"ip6\":\"%s\",\"mqtt_queue\":%d,\"slots\":[",
       (unsigned long)(uptime_millis / 1000), (unsigned)board.getBattMilliVolts(),
       (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getMinFreeHeap(),
       (unsigned long)ESP.getMaxAllocHeap(),
@@ -1627,7 +1629,7 @@ void MyMesh::buildStatsJson(char* buf, size_t buf_size) {
       (unsigned long)radio_driver.getPacketsRecvErrors(),
       (unsigned long)getNumSentFlood(), (unsigned long)getNumSentDirect(),
       (unsigned long)getNumRecvFlood(), (unsigned long)getNumRecvDirect(),
-      (int)_mgr->getOutboundCount(0xFFFFFFFF), wifi_rssi, network_medium, ip,
+      (int)_mgr->getOutboundCount(0xFFFFFFFF), wifi_rssi, network_medium, ip, ip6,
       bridge ? bridge->getQueueSize() : 0);
   if (pos < 0 || pos >= (int)buf_size - 3) return;  // truncated; snprintf terminated it
   bool first = true;

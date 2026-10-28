@@ -23,6 +23,7 @@
 #endif
 
 #ifdef ESP_PLATFORM
+#include "../ESP32Ipv6Preference.h"
 #include <esp_wifi.h>
 #include <esp_tls.h>
 #include <esp_random.h>
@@ -1761,6 +1762,7 @@ bool MQTTBridge::ensureSlotClient(int index) {
       return;
     }
     MQTT_DEBUG_PRINTLN("MQTT%d connected", index + 1);
+    Ipv6Preference::noteConnected();
     _slot_attempt_pending[index] = false;
     _slots[index].client_state = ClientState::Connected;
     _slots[index].connected = true;
@@ -1837,6 +1839,9 @@ bool MQTTBridge::ensureSlotClient(int index) {
       MQTT_DEBUG_PRINTLN("MQTT%d connection refused by broker (return code=%d)",
         index + 1, (int)error.connect_return_code);
     } else if (error.esp_tls_last_esp_err != 0 || error.esp_tls_stack_err != 0 || error.esp_transport_sock_errno != 0) {
+      // A connect that went nowhere over IPv6 counts towards falling back to
+      // the A record; the policy ignores handshake/auth failures and IPv4 tries.
+      Ipv6Preference::noteConnectFailure(error.esp_tls_last_esp_err);
       MQTT_DEBUG_PRINTLN("MQTT%d error: tls=%d, tls_stack=%d, sock=%d, type=%d",
         index + 1, error.esp_tls_last_esp_err, error.esp_tls_stack_err,
         error.esp_transport_sock_errno, error.error_type);
