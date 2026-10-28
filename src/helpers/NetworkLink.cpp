@@ -33,12 +33,6 @@ extern void tcpipInit();
   #define NETWORK_DEBUG_PRINTLN(...) do {} while (0)
 #endif
 
-// Stateless autoconfig on the Wi-Fi station, so broker lookups can prefer AAAA
-// (see ESP32Ipv6Preference.cpp). -D MQTT_WIFI_IPV6=0 keeps the station IPv4-only.
-#ifndef MQTT_WIFI_IPV6
-#define MQTT_WIFI_IPV6 1
-#endif
-
 namespace {
 
 // Trailing empty slots are dropped to keep remote replies short; "-" marks an
@@ -300,28 +294,29 @@ class WiFiNetworkLink final : public NetworkLinkBase {
     if (_hostname[0] != '\0') WiFi.setHostname(_hostname);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
-#if MQTT_WIFI_IPV6 && ESP_ARDUINO_VERSION_MAJOR >= 3
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
     // Core 3.x keeps this as a flag the station applies when it starts.
-    WiFi.enableIPv6(true);
+    WiFi.enableIPv6(Ipv6Preference::enabled());
 #endif
 
     if (!_event_registered) {
       WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
         switch (event) {
-#if MQTT_WIFI_IPV6 && ESP_ARDUINO_VERSION_MAJOR < 3
+#if ESP_ARDUINO_VERSION_MAJOR < 3
           case ARDUINO_EVENT_WIFI_STA_CONNECTED:
             // Core 2.x creates the link-local address only on request, and only
             // once the netif is up, which is this event. SLAAC (compiled into
             // the SDK's lwIP) then adds global addresses from router adverts.
-            if (!WiFi.enableIpV6()) NETWORK_DEBUG_PRINTLN("WiFi IPv6 enable failed");
+            // `set wifi.ipv6 off` (stored in /mqtt.json) skips it.
+            if (Ipv6Preference::enabled() && !WiFi.enableIpV6()) {
+              NETWORK_DEBUG_PRINTLN("WiFi IPv6 enable failed");
+            }
             break;
 #endif
-#if MQTT_WIFI_IPV6
           case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
             NETWORK_DEBUG_PRINTLN("WiFi IPv6: " IPV6STR,
                                   IPV62STR(info.got_ip6.ip6_info.ip));
             break;
-#endif
           case ARDUINO_EVENT_WIFI_STA_GOT_IP:
             NETWORK_DEBUG_PRINTLN("WiFi connected: %s",
                 IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
@@ -1039,7 +1034,7 @@ class AutomaticNetworkLink final : public NetworkLink {
     snprintf(reply, reply_size,
              "> why:%s selected:%s lock:%s\n"
              "eth:init:%s retry:%u/%lums evt:%s link:%s ip:%s\n"
-             "wifi:cfg:%s started:%s link:%s",
+             "wifi:cfg:%s started:%s link:%s v6:%s",
              NetworkPolicy::diagnosticReasonName(reason),
              NetworkPolicy::mediumName(selected),
              switching_locked ? "yes" : "no",
@@ -1049,7 +1044,8 @@ class AutomaticNetworkLink final : public NetworkLink {
                                  : "unknown",
              _ethernet.localIP().toString().c_str(),
              wifiConfigured() ? "yes" : "no", wifi_started ? "yes" : "no",
-             (wifi_started && _wifi.isConnected()) ? "up" : "down");
+             (wifi_started && _wifi.isConnected()) ? "up" : "down",
+             Ipv6Preference::stateName());
   }
   void formatDns(char* reply, size_t reply_size) const override {
     const NetworkMedium selected = _selected.load(std::memory_order_acquire);

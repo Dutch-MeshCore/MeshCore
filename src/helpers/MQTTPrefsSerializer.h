@@ -40,20 +40,21 @@ class MQTTPrefsSerializer : public ConfigSerializer {
 
   class WifiPrefs : public ConfigSerializer {
     MQTTPrefs* _prefs;
-    int32_t _power_save, _setup_complete;
+    int32_t _power_save, _setup_complete, _ipv6;
     bool _seen_ssid = false, _seen_password = false, _seen_power_save = false;
-    bool _seen_setup_complete = false;
+    bool _seen_setup_complete = false, _seen_ipv6 = false;
   protected:
     void structure() override {
       defStrict("ssid", _prefs->wifi_ssid, sizeof(_prefs->wifi_ssid), _seen_ssid);
       defStrict("password", _prefs->wifi_password, sizeof(_prefs->wifi_password), _seen_password);
       defStrict("power_save", _power_save, _seen_power_save);
       defStrict("setup_complete", _setup_complete, _seen_setup_complete);
+      defStrict("ipv6", _ipv6, _seen_ipv6);
     }
   public:
     explicit WifiPrefs(MQTTPrefs* prefs)
         : _prefs(prefs), _power_save(prefs->wifi_power_save),
-          _setup_complete(prefs->network_setup_complete) {}
+          _setup_complete(prefs->network_setup_complete), _ipv6(prefs->wifi_ipv6) {}
     bool apply(bool* repaired) {
       if (_power_save < 0 || _power_save > WifiPowerSavePolicy::kMaxStoredValue) {
         _power_save = 1;
@@ -63,8 +64,13 @@ class MQTTPrefsSerializer : public ConfigSerializer {
         _setup_complete = 0;
         *repaired = true;
       }
+      if (_ipv6 < 0 || _ipv6 > 1) {
+        _ipv6 = MQTT_WIFI_IPV6 ? 1 : 0;
+        *repaired = true;
+      }
       _prefs->wifi_power_save = static_cast<uint8_t>(_power_save);
       _prefs->network_setup_complete = static_cast<uint8_t>(_setup_complete);
+      _prefs->wifi_ipv6 = static_cast<uint8_t>(_ipv6);
       return true;
     }
   };

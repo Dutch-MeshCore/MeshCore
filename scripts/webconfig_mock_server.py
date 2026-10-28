@@ -114,6 +114,7 @@ def default_config(setup_mode):
             "ssid": "" if setup_mode else "HomeNet",
             "pwd": "" if setup_mode else "secretpw",   # stored raw; masked on GET
             "powersave": "min",
+            "ipv6": True,
         },
         "mqtt": {
             "origin": "" if setup_mode else "MockNode", "iata": "" if setup_mode else "DEN",
@@ -217,6 +218,7 @@ BOOL_KEYS = {"cad": ("radio", "cad"), "radio.rxgain": ("radio", "rxgain"),
              "repeat": ("radio", "repeat"), "mqtt.status": ("mqtt", "status"),
              "mqtt.packets": ("mqtt", "packets"), "mqtt.raw": ("mqtt", "raw"),
              "mqtt.rx": ("mqtt", "rx"), "mqtt.advert.verify": ("mqtt", "advert_verify"),
+             "wifi.ipv6": ("wifi", "ipv6"),
              "snmp": ("mqtt", "snmp"),
              "mqtt.neighbors": ("mqtt", "neighbors")}
 INT_KEYS = {"tx": ("radio", "tx"), "flood.max": ("radio", "flood_max"),
@@ -1117,7 +1119,7 @@ class Handler(BaseHTTPRequestHandler):
             "airtime_s": up // 20, "rx_airtime_s": up // 8, "recv": 512 + up,
             "sent": 88 + up // 3, "rx_err": 3, "sent_flood": 40, "sent_direct": 48,
             "recv_flood": 300, "recv_direct": 212, "tx_queue": 0, "mqtt_queue": 0,
-            "wifi_rssi": -58, "ip": "192.168.1.42", "slots": slots,
+            "wifi_rssi": -58, "ip": "192.168.1.42", "ip6": "2001:db8:42::1", "slots": slots,
         }
 
 

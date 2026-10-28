@@ -25,6 +25,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_wifi.h>
+#include <esp_arduino_version.h>
+#include "ESP32Ipv6Preference.h"
 #endif
 #ifdef WITH_MQTT_BRIDGE
 #include "bridges/MQTTBridge.h"
@@ -471,6 +473,39 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
     StrHelper::strncpy(_mqtt_prefs.wifi_password, &config[9], sizeof(_mqtt_prefs.wifi_password));
     if (!persistObserverPrefs(reply)) return true;
     strcpy(reply, "OK");
+  } else if (memcmp(config, "wifi.ipv6 ", 10) == 0) {
+    const char* value = &config[10];
+    uint8_t enable;
+    if (memcmp(value, "on", 2) == 0) {
+      enable = 1;
+    } else if (memcmp(value, "off", 3) == 0) {
+      enable = 0;
+    } else {
+      strcpy(reply, "Error: must be on or off");
+      return true;
+    }
+    _mqtt_prefs.wifi_ipv6 = enable;
+    if (!persistObserverPrefs(reply)) return true;
+#ifdef ESP_PLATFORM
+    Ipv6Preference::setEnabled(enable != 0);
+    if (enable) {
+      // Core 2.x can add the link-local address to a live association; SLAAC
+      // follows on the next router advert. Core 3.x applies it at station start.
+#if ESP_ARDUINO_VERSION_MAJOR < 3
+      if (strcmp(activeNetworkLink().mediumName(), "wifi") == 0 &&
+          activeNetworkLink().isConnected()) {
+        WiFi.enableIpV6();
+      }
+#endif
+      strcpy(reply, "OK - IPv6 on; MQTT prefers IPv6 on its next connect");
+    } else {
+      // lwIP keeps the addresses it has until the station reassociates, but
+      // lookups already stop asking for AAAA.
+      strcpy(reply, "OK - IPv6 off; MQTT uses IPv4 from its next connect");
+    }
+#else
+    strcpy(reply, "OK");
+#endif
   } else if (memcmp(config, "wifi.powersave ", 15) == 0) {
     uint8_t ps_value;
     if (!WifiPowerSavePolicy::parseName(&config[15], &ps_value)) {
@@ -1189,6 +1224,8 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
     }
   } else if (memcmp(config, "wifi.powersave", 14) == 0) {
     sprintf(reply, "> %s", WifiPowerSavePolicy::nameFor(_mqtt_prefs.wifi_power_save));
+  } else if (memcmp(config, "wifi.ipv6", 9) == 0) {
+    sprintf(reply, "> %s", _mqtt_prefs.wifi_ipv6 ? "on" : "off");
   } else if (memcmp(config, "timezone.offset", 15) == 0) {
     // Must precede the "timezone" (8-byte) check below — that prefix-matches
     // "timezone.offset" too, so the more-specific key has to come first or

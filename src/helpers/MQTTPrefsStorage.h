@@ -9,6 +9,12 @@
 // without pulling in Arduino, filesystem, or radio dependencies.
 #ifdef WITH_MQTT_BRIDGE
 
+// Default for `wifi.ipv6` on fresh /mqtt.json and on files written before the
+// key existed. -D MQTT_WIFI_IPV6=0 ships IPv4-only by default.
+#ifndef MQTT_WIFI_IPV6
+#define MQTT_WIFI_IPV6 1
+#endif
+
 // Must match MAX_MQTT_SLOTS in MQTTPresets.h. CommonCLI.h enforces that link on
 // firmware builds; keeping this header standalone avoids importing preset data
 // into host migration tests.
@@ -158,6 +164,10 @@ struct MQTTPrefs {
   // Drop received adverts whose Ed25519 signature fails before publishing.
   // Defaults off so RF corruption on the mesh stays visible to collectors.
   uint8_t mqtt_advert_verify;
+
+  // `wifi.ipv6`: SLAAC on the Wi-Fi station and IPv6-first broker lookups
+  // (ESP32Ipv6Preference). JSON-only, so it has no legacy binary layout.
+  uint8_t wifi_ipv6;
 };
 
 // Per-slot DMC extension-topic mask (MQTTPrefs::mqtt_slot_extras).

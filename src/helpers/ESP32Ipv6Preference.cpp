@@ -19,6 +19,7 @@
 // AF_INET6 explicitly pass straight through.
 //
 // When the AAAA path is taken, all of these must hold:
+//  - `wifi.ipv6` is on (Ipv6Preference::setEnabled);
 //  - some interface holds a valid non-link-local IPv6 address (cheap pre-check,
 //    so builds that never enable IPv6 do not pay for an AAAA query);
 //  - Ipv6FallbackPolicy has not suspended the preference after repeated IPv6
@@ -33,6 +34,7 @@
 #include "Ipv6FallbackPolicy.h"
 
 #include <Arduino.h>
+#include <atomic>
 #include <string.h>
 
 #include <esp_netif.h>
@@ -41,11 +43,33 @@
 #include <lwip/ip6_addr.h>
 #include <lwip/netdb.h>
 #include <lwip/netif.h>
+#include <lwip/sockets.h>
 
 namespace {
 
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 Ipv6FallbackPolicy::State s_state;
+std::atomic<bool> s_enabled{true};
+
+#if defined(MQTT_DEBUG)
+// One line per broker lookup, so a node on a dual-stack network shows which
+// family each connect attempt used.
+void logLookup(const char* nodename, const struct addrinfo* ai) {
+  if (Serial.availableForWrite() <= 0 || ai == nullptr || ai->ai_addr == nullptr) return;
+  char text[48] = "?";
+  if (ai->ai_family == AF_INET6) {
+    const struct sockaddr_in6* sa = reinterpret_cast<const struct sockaddr_in6*>(ai->ai_addr);
+    inet_ntop(AF_INET6, &sa->sin6_addr, text, sizeof(text));
+  } else if (ai->ai_family == AF_INET) {
+    const struct sockaddr_in* sa = reinterpret_cast<const struct sockaddr_in*>(ai->ai_addr);
+    inet_ntop(AF_INET, &sa->sin_addr, text, sizeof(text));
+  }
+  Serial.printf("MQTT: %s -> %s %s\n", nodename,
+                ai->ai_family == AF_INET6 ? "IPv6" : "IPv4", text);
+}
+#else
+void logLookup(const char*, const struct addrinfo*) {}
+#endif
 
 bool policyPrefersIpv6() {
   portENTER_CRITICAL(&s_mux);
@@ -126,7 +150,7 @@ extern "C" int __wrap_lwip_getaddrinfo(const char* nodename, const char* servnam
                                        const struct addrinfo* hints, struct addrinfo** res) {
   const bool unspecified = hints == nullptr || hints->ai_family == AF_UNSPEC;
   if (nodename != nullptr && res != nullptr && unspecified &&
-      anyIpv6Source() && policyPrefersIpv6()) {
+      s_enabled.load(std::memory_order_relaxed) && anyIpv6Source() && policyPrefersIpv6()) {
     struct addrinfo v6_hints;
     if (hints != nullptr) {
       v6_hints = *hints;
@@ -139,6 +163,7 @@ extern "C" int __wrap_lwip_getaddrinfo(const char* nodename, const char* servnam
       if (routable(v6)) {
         *res = v6;
         recordLookup(true);
+        logLookup(nodename, v6);
         return 0;
       }
       lwip_freeaddrinfo(v6);
@@ -147,11 +172,20 @@ extern "C" int __wrap_lwip_getaddrinfo(const char* nodename, const char* servnam
   const int rc = __real_lwip_getaddrinfo(nodename, servname, hints, res);
   if (rc == 0 && res != nullptr && *res != nullptr) {
     recordLookup((*res)->ai_family == AF_INET6);
+    if (nodename != nullptr && unspecified) logLookup(nodename, *res);
   }
   return rc;
 }
 
 namespace Ipv6Preference {
+
+void setEnabled(bool enabled) {
+  s_enabled.store(enabled, std::memory_order_relaxed);
+  // Turning it back on should not inherit a suspension from before.
+  noteLinkChange();
+}
+
+bool enabled() { return s_enabled.load(std::memory_order_relaxed); }
 
 void noteConnectFailure(int tls_err) {
   portENTER_CRITICAL(&s_mux);
@@ -180,6 +214,7 @@ void noteLinkChange() {
 }
 
 const char* stateName() {
+  if (!enabled()) return "off";
   if (!anyIpv6Source()) return "none";
   portENTER_CRITICAL(&s_mux);
   const char* name = Ipv6FallbackPolicy::stateName(s_state, millis());

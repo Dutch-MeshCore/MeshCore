@@ -12,11 +12,17 @@
 // changes, and the CLI reads the state.
 namespace Ipv6Preference {
 
+// The stored `wifi.ipv6` setting. Off makes the lookup wrapper a pass-through
+// and keeps the Wi-Fi link from requesting IPv6 on its next association.
+void setEnabled(bool enabled);
+bool enabled();
+
 void noteConnectFailure(int tls_err);
 void noteConnected();
 void noteLinkChange();
 
-// "none" without a usable IPv6 source address, else "preferred"/"suspended".
+// "off" when disabled, "none" without a usable IPv6 source address, else
+// "preferred"/"suspended".
 const char* stateName();
 
 // First global (else unique-local) address of the Wi-Fi station. Writes "-"

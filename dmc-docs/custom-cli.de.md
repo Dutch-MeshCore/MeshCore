@@ -119,6 +119,7 @@ DMC ergänzte `auto` und änderte die Vorgabe von 50% auf `auto`.
 Nur auf ESP32-Observer-Builds.
 
 - **WiFi**: `set wifi.ssid <ssid>`, `set wifi.pwd <pwd>`, `set wifi.powersave ...`,
+  `set wifi.ipv6 <on|off>` (IPv6 mit MQTT zuerst über IPv6 und Rückfall auf IPv4; Standard `on`),
   `get wifi.status`
 - **MQTT-Identität und -Routing**: `set mqtt.iata <code>`, `set mqtt.email <email>`,
   `set mqtt.owner <64-hex>`, `set mqtt<N>.preset <name>` / `set mqtt<N>.server <...>`,

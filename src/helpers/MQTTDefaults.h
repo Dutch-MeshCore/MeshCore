@@ -71,6 +71,7 @@ static inline void applyMQTTDefaults(MQTTPrefs* prefs) {
   prefs->mqtt_advert_verify = 0;
   prefs->mqtt_status_interval = 300000;
   prefs->wifi_power_save = 1;
+  prefs->wifi_ipv6 = MQTT_WIFI_IPV6 ? 1 : 0;
 
   mqttDefaultSlotPreset(prefs->mqtt_slot_preset[0], sizeof(prefs->mqtt_slot_preset[0]),
                         MQTT_DEFAULT_SLOT1_PRESET);
