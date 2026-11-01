@@ -39,3 +39,4 @@ scripts/__pycache__/*
 
 # DMC docs site build output
 /site-dmc/
+.github/hooks/impeccable.json

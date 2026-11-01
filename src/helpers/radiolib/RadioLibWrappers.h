@@ -28,6 +28,7 @@ protected:
   void startRecv() override;
   float packetScoreInt(float snr, int sf, int packet_len);
   virtual bool isReceivingPacket() =0;
+  virtual bool lastRxHadCRC() { return true; }
   virtual void doResetAGC();
 
 public:

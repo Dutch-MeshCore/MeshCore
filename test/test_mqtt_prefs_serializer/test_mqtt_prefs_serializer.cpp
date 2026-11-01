@@ -440,6 +440,51 @@ TEST(MQTTPrefsSerializer, DisplayFlipRoundTripsAndRepairs) {
   EXPECT_EQ(0, prefs.display_flip);
 }
 
+// 0 is "board default", not 0 dBm; it must survive a save so a later build can
+// still move the default. Files from older firmware have no tx_power at all.
+TEST(MQTTPrefsSerializer, WifiTxPowerRoundTripsDefaultsAndRepairs) {
+  MQTTPrefs source = defaults();
+  EXPECT_EQ(WifiTxPowerPolicy::kBoardDefault, source.wifi_tx_power);
+  for (uint8_t dbm : {(uint8_t)0, (uint8_t)2, (uint8_t)15, (uint8_t)20}) {
+    source.wifi_tx_power = dbm;
+    OutputStream output;
+    MQTTPrefsSerializer writer(&source);
+    ASSERT_TRUE(writer.saveSerial(output)) << (int)dbm;
+
+    MQTTPrefs loaded = defaults();
+    loaded.wifi_tx_power = 7;
+    InputStream input(output.text());
+    MQTTPrefsSerializer reader(&loaded);
+    ASSERT_TRUE(reader.loadSerial(input)) << (int)dbm;
+    bool repaired = false;
+    ASSERT_TRUE(reader.apply(&repaired)) << (int)dbm;
+    EXPECT_FALSE(repaired) << (int)dbm;
+    EXPECT_EQ(dbm, loaded.wifi_tx_power);
+  }
+
+  MQTTPrefs legacy = defaults();
+  InputStream old_file("{version:1,wifi:{ssid:\"home\",power_save:1}}");
+  MQTTPrefsSerializer legacy_serializer(&legacy);
+  ASSERT_TRUE(legacy_serializer.loadSerial(old_file));
+  bool repaired = false;
+  ASSERT_TRUE(legacy_serializer.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_EQ(WifiTxPowerPolicy::kBoardDefault, legacy.wifi_tx_power);
+
+  for (const char* bogus_text : {"{version:1,wifi:{tx_power:1}}",
+                                 "{version:1,wifi:{tx_power:21}}",
+                                 "{version:1,wifi:{tx_power:-3}}"}) {
+    MQTTPrefs prefs = defaults();
+    InputStream bogus(bogus_text);
+    MQTTPrefsSerializer bogus_serializer(&prefs);
+    ASSERT_TRUE(bogus_serializer.loadSerial(bogus)) << bogus_text;
+    repaired = false;
+    ASSERT_TRUE(bogus_serializer.apply(&repaired)) << bogus_text;
+    EXPECT_TRUE(repaired) << bogus_text;
+    EXPECT_EQ(WifiTxPowerPolicy::kBoardDefault, prefs.wifi_tx_power) << bogus_text;
+  }
+}
+
 TEST(MQTTPrefsSerializer, AdvertVerifyDefaultsOffRoundTripsAndRepairs) {
   MQTTPrefs source = defaults();
   EXPECT_EQ(0, source.mqtt_advert_verify);
@@ -573,6 +618,124 @@ TEST(MQTTPrefsSerializer, UnknownKeysInsideAKnownGroupAreDowngradeSafe) {
   ASSERT_TRUE(serializer.apply(&repaired));
   EXPECT_STREQ("home", prefs.wifi_ssid);
   EXPECT_EQ(2, prefs.wifi_power_save);
+}
+
+TEST(MQTTPrefsSerializer, SlotIataRoundTripsAndDefaultsEmpty) {
+  MQTTPrefs source = defaults();
+  strcpy(source.mqtt_iata, "SAT");
+  strcpy(source.mqtt_slot_iata[1], "CRP");
+
+  OutputStream output;
+  MQTTPrefsSerializer writer(&source);
+  ASSERT_TRUE(writer.saveSerial(output));
+  EXPECT_NE(std::string::npos, output.text().find("iata:\"CRP\"")) << output.text();
+
+  MQTTPrefs loaded = defaults();
+  InputStream input(output.text());
+  MQTTPrefsSerializer reader(&loaded);
+  ASSERT_TRUE(reader.loadSerial(input)) << output.text();
+  bool repaired = true;
+  ASSERT_TRUE(reader.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_STREQ("SAT", loaded.mqtt_iata);
+  EXPECT_STREQ("CRP", loaded.mqtt_slot_iata[1]);
+  for (int i = 0; i < MQTT_PREFS_SLOT_COUNT; ++i) {
+    if (i != 1) EXPECT_STREQ("", loaded.mqtt_slot_iata[i]) << i;
+  }
+}
+
+TEST(MQTTPrefsSerializer, PrefsWrittenBeforeSlotIataStillLoad) {
+  // Upgrade path: a slot group without the key keeps an empty override, so the
+  // slot follows mqtt.iata exactly as it did before.
+  MQTTPrefs prefs = defaults();
+  InputStream input(
+      "{version:1,mqtt:{iata:\"SEA\",slot1:{preset:\"analyzer-us\"}}}");
+  MQTTPrefsSerializer serializer(&prefs);
+  ASSERT_TRUE(serializer.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(serializer.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_STREQ("", prefs.mqtt_slot_iata[0]);
+}
+
+TEST(MQTTPrefsSerializer, RepairsSlotIataCaseAndDropsInvalidOverrides) {
+  MQTTPrefs prefs = defaults();
+  InputStream input(
+      "{version:1,mqtt:{iata:\"SEA\",slot1:{iata:\"den\"},"
+      "slot2:{iata:\"toolong\"},slot3:{iata:\"a/b\"}}}");
+  MQTTPrefsSerializer serializer(&prefs);
+  ASSERT_TRUE(serializer.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(serializer.apply(&repaired));
+  EXPECT_TRUE(repaired);
+  EXPECT_STREQ("DEN", prefs.mqtt_slot_iata[0]);
+  // Invalid overrides are cleared, not repaired to a default, so those slots
+  // fall back to the node-wide code.
+  EXPECT_STREQ("", prefs.mqtt_slot_iata[1]);
+  EXPECT_STREQ("", prefs.mqtt_slot_iata[2]);
+  EXPECT_STREQ("SEA", prefs.mqtt_iata);
+}
+
+TEST(MQTTPrefsSerializer, ExplicitSlotExtrasSurviveSaveAndLoad) {
+  // Each slot holds the opposite of what its preset derives, so a value that is
+  // dropped and re-derived on load cannot pass by coincidence.
+  MQTTPrefs source = defaults();
+  strcpy(source.mqtt_slot_preset[0], "dutchmeshcore-1");
+  source.mqtt_slot_extras[0] = MQTT_SLOT_EXTRAS_NONE;
+  strcpy(source.mqtt_slot_preset[1], "analyzer-eu");
+  source.mqtt_slot_extras[1] = MQTT_SLOT_EXTRAS_ALL;
+  strcpy(source.mqtt_slot_preset[2], "custom");
+  source.mqtt_slot_extras[2] = MQTT_SLOT_EXTRA_FILTER;
+
+  OutputStream output;
+  MQTTPrefsSerializer writer(&source);
+  ASSERT_TRUE(writer.saveSerial(output));
+
+  MQTTPrefs loaded = defaults();
+  InputStream input(output.text());
+  MQTTPrefsSerializer reader(&loaded);
+  ASSERT_TRUE(reader.loadSerial(input)) << output.text();
+  bool repaired = true;
+  ASSERT_TRUE(reader.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, loaded.mqtt_slot_extras[0]);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_ALL, loaded.mqtt_slot_extras[1]);
+  EXPECT_EQ(MQTT_SLOT_EXTRA_FILTER, loaded.mqtt_slot_extras[2]);
+}
+
+TEST(MQTTPrefsSerializer, PrefsWrittenBeforeSlotExtrasDeriveFromThePreset) {
+  // Upgrade path: this is what stops an already-deployed node publishing DMC
+  // topics at a community broker.
+  MQTTPrefs prefs = defaults();
+  prefs.mqtt_slot_extras[0] = MQTT_SLOT_EXTRAS_NONE;
+  prefs.mqtt_slot_extras[1] = MQTT_SLOT_EXTRAS_ALL;
+  InputStream input(
+      "{version:1,mqtt:{slot1:{preset:\"dutchmeshcore-1\"},"
+      "slot2:{preset:\"analyzer-eu\"}}}");
+  MQTTPrefsSerializer serializer(&prefs);
+  ASSERT_TRUE(serializer.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(serializer.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_ALL, prefs.mqtt_slot_extras[0]);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, prefs.mqtt_slot_extras[1]);
+}
+
+TEST(MQTTPrefsSerializer, RepairsCorruptSlotExtrasToThePresetDefault) {
+  MQTTPrefs prefs = defaults();
+  InputStream input(
+      "{version:1,mqtt:{slot1:{preset:\"dutchmeshcore-1\",extras:4},"
+      "slot2:{preset:\"analyzer-eu\",extras:-1},"
+      "slot3:{preset:\"analyzer-us\",extras:255}}}");
+  MQTTPrefsSerializer serializer(&prefs);
+  ASSERT_TRUE(serializer.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(serializer.apply(&repaired));
+  EXPECT_TRUE(repaired);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_ALL, prefs.mqtt_slot_extras[0]);
+  // A damaged file must not re-open DMC topics to a community broker.
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, prefs.mqtt_slot_extras[1]);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, prefs.mqtt_slot_extras[2]);
 }
 
 int main(int argc, char** argv) {

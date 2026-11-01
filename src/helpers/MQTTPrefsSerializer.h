@@ -5,6 +5,7 @@
 #include <helpers/MQTTPresets.h>
 #include <helpers/MQTTPrefsStorage.h>
 #include <helpers/WifiPowerSavePolicy.h>
+#include <helpers/WifiTxPowerPolicy.h>
 
 #ifdef WITH_MQTT_BRIDGE
 
@@ -40,9 +41,9 @@ class MQTTPrefsSerializer : public ConfigSerializer {
 
   class WifiPrefs : public ConfigSerializer {
     MQTTPrefs* _prefs;
-    int32_t _power_save, _setup_complete, _ipv6;
+    int32_t _power_save, _setup_complete, _ipv6, _tx_power;
     bool _seen_ssid = false, _seen_password = false, _seen_power_save = false;
-    bool _seen_setup_complete = false, _seen_ipv6 = false;
+    bool _seen_setup_complete = false, _seen_ipv6 = false, _seen_tx_power = false;
   protected:
     void structure() override {
       defStrict("ssid", _prefs->wifi_ssid, sizeof(_prefs->wifi_ssid), _seen_ssid);
@@ -50,11 +51,13 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       defStrict("power_save", _power_save, _seen_power_save);
       defStrict("setup_complete", _setup_complete, _seen_setup_complete);
       defStrict("ipv6", _ipv6, _seen_ipv6);
+      defStrict("tx_power", _tx_power, _seen_tx_power);
     }
   public:
     explicit WifiPrefs(MQTTPrefs* prefs)
         : _prefs(prefs), _power_save(prefs->wifi_power_save),
-          _setup_complete(prefs->network_setup_complete), _ipv6(prefs->wifi_ipv6) {}
+          _setup_complete(prefs->network_setup_complete), _ipv6(prefs->wifi_ipv6),
+          _tx_power(prefs->wifi_tx_power) {}
     bool apply(bool* repaired) {
       if (_power_save < 0 || _power_save > WifiPowerSavePolicy::kMaxStoredValue) {
         _power_save = 1;
@@ -68,6 +71,11 @@ class MQTTPrefsSerializer : public ConfigSerializer {
         _ipv6 = MQTT_WIFI_IPV6 ? 1 : 0;
         *repaired = true;
       }
+      if (!WifiTxPowerPolicy::isValidStored(_tx_power)) {
+        _tx_power = WifiTxPowerPolicy::kBoardDefault;
+        *repaired = true;
+      }
+      _prefs->wifi_tx_power = static_cast<uint8_t>(_tx_power);
       _prefs->wifi_power_save = static_cast<uint8_t>(_power_save);
       _prefs->network_setup_complete = static_cast<uint8_t>(_setup_complete);
       _prefs->wifi_ipv6 = static_cast<uint8_t>(_ipv6);
@@ -216,6 +224,7 @@ class MQTTPrefsSerializer : public ConfigSerializer {
     bool _seen_username = false, _seen_password = false, _seen_token = false;
     bool _seen_topic = false, _seen_audience = false, _seen_filter = false;
     bool _seen_extras = false;
+    bool _seen_iata = false;
   protected:
     void structure() override {
       defStrict("preset", _prefs->mqtt_slot_preset[_index],
@@ -234,6 +243,9 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       defStrict("audience", _prefs->mqtt_slot_audience[_index],
                 sizeof(_prefs->mqtt_slot_audience[_index]), _seen_audience);
       defStrict("packet_filter", _filter, _seen_filter);
+      defStrict("extras", _extras, _seen_extras);
+      defStrict("iata", _prefs->mqtt_slot_iata[_index],
+                sizeof(_prefs->mqtt_slot_iata[_index]), _seen_iata);
     }
   public:
     SlotPrefs(MQTTPrefs* prefs, int index)
@@ -263,6 +275,22 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       _prefs->mqtt_slot_port[_index] = static_cast<uint16_t>(_port);
       _prefs->mqtt_slot_packet_filter[_index] = static_cast<uint16_t>(_filter);
       _prefs->mqtt_slot_extras[_index] = static_cast<uint8_t>(_extras);
+      // An unusable override is dropped rather than repaired to a default: the
+      // slot then falls back to the global IATA, the same as never setting one.
+      char* iata = _prefs->mqtt_slot_iata[_index];
+      if (iata[0] != '\0') {
+        if (!mqttIataValid(iata)) {
+          iata[0] = '\0';
+          *repaired = true;
+        } else {
+          for (char* p = iata; *p; ++p) {
+            if (*p >= 'a' && *p <= 'z') {
+              *p = static_cast<char>(*p - ('a' - 'A'));
+              *repaired = true;
+            }
+          }
+        }
+      }
     }
   };
 

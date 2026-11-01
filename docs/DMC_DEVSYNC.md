@@ -80,6 +80,33 @@ for heltec_v4 repeater/room/companion ble+wifi/sensor/kiss_modem, Heltec_v3_term
 RAK_4631 repeater/companion_ble/sensor, Heltec_E290_repeater, and the new ThinkNode_M4_repeater,
 WioTrackerL1-1W repeater/companion_ble, muzi_base_duo repeater/companion_ble.
 
+## Follow-up sync 2026-11-01 (`upstream/dev` @ `5533c24f`)
+
+Plain merge of 66 upstream commits; version stays `v1.18.0.01` (upstream is still `v1.18.0`). RadioLib
+moves from a July commit pin to the `7.8.1` release. Conflicts:
+
+- `RegionMap::findMatch()` code 0: keep ours. Upstream's `bd882a2a` is the same fix as DMC's
+  `e3d029b2` but tests `wildcard.flags`; ours tests `effectiveFlags()`, so the runtime duty gate holds.
+- `RoutingPolicy.h`: keep ours, `isUnscopedFlood()` covers upstream's added line.
+- `test_routing_policy.cpp` `makeFlood()`: keep ours, its `code0` parameter is a superset.
+- `CommonRadioPrefs.cpp`: keep both. Upstream's `looksLikeANumber()` guard goes on the manual branch of
+  `set dutycycle`; the `auto` branch and our reply text stay. `set af` took the guard automatically.
+
+Semantic checks that were clean, for the next sync to re-check:
+
+- `CommonRadioPrefs::get/setTxPower` went `uint8_t`→`int8_t` (pure virtual); no DMC-only subclass keeps
+  the old signature.
+- Companion `tz_offset` is now a `float`; it is only read and written through `NodePrefs` and the JSON
+  prefs, with no byte-offset legacy read.
+
+Verified: native 262/262, `native_region_gating` 31/31, `test_kiss_modem` 8/8 (run directly with the
+toolchain on `PATH`; `pio test` fails to start it here with `0xC0000139`). Builds green for
+Heltec_v3 repeater/companion_ble, heltec_v4 repeater, T_Beam_S3_Supreme companion_wifi/kiss_modem,
+Waveshare_S3_LR1121 repeater, Station_G2 repeater, RAK_4631 repeater/companion_ble, SenseCap_Solar
+repeater/room, ThinkNode_M8 repeater/room (fixed by upstream `f99ea79b`), ThinkNode_M1 and T-Echo
+companion_ble, RAK_11310 repeater, wio-e5 repeater, wio-e5-mini sensor, meshnology_w12 repeater (LR2021).
+Not hardware-tested. Tightest flash: Station_G2 repeater 93.5%, wio-e5 repeater 92.3%.
+
 ## Propagation TODO (not done here — scope was `dmc-dev`)
 
 The whole point of consolidating onto `dmc-dev` was to make these clean. Each deserves its own branch

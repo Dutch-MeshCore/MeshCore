@@ -188,8 +188,8 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
     stats.n_recv_direct = getNumRecvDirect();
     stats.err_events = _err_flags;
     stats.last_snr = (int16_t)(radio_driver.getLastSNR() * 4);
-    stats.n_direct_dups = ((SimpleMeshTables *)getTables())->getNumDirectDups();
-    stats.n_flood_dups = ((SimpleMeshTables *)getTables())->getNumFloodDups();
+    stats.n_direct_dups = std::min<uint32_t>(((SimpleMeshTables *)getTables())->getNumDirectDups(), 0xFFFF);
+    stats.n_flood_dups = std::min<uint32_t>(((SimpleMeshTables *)getTables())->getNumFloodDups(), 0xFFFF);
     stats.n_posted = _num_posted;
     stats.n_post_push = _num_post_pushes;
 
@@ -973,6 +973,8 @@ void MyMesh::begin(FILESYSTEM *fs) {
 
 #if defined(WITH_MQTT_BRIDGE) && defined(ESP_PLATFORM)
   NetworkLink& boot_network = activeNetworkLink();
+  // Retained before any Wi-Fi start, so the first association is capped too.
+  boot_network.setWifiTxPower(_cli.getObserverPrefs()->wifi_tx_power);
   if (boot_network.isAutomatic()) {
     applyNetworkHostname("");
     MQTTPrefs* obs = _cli.getObserverPrefs();

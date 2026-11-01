@@ -168,6 +168,14 @@ struct MQTTPrefs {
   // `wifi.ipv6`: SLAAC on the Wi-Fi station and IPv6-first broker lookups
   // (ESP32Ipv6Preference). JSON-only, so it has no legacy binary layout.
   uint8_t wifi_ipv6;
+  // Per-slot IATA override for MeshCore-style topics. Empty uses mqtt_iata, so
+  // one observer can publish under different region codes to brokers whose
+  // region maps differ. Runtime only, like display_timeout_secs.
+  char mqtt_slot_iata[MQTT_PREFS_SLOT_COUNT][8];
+
+  // WiFi TX power cap in whole dBm; 0 follows the build's MQTT_WIFI_TX_POWER
+  // (see WifiTxPowerPolicy). Runtime only, like display_timeout_secs.
+  uint8_t wifi_tx_power;
 };
 
 // Per-slot DMC extension-topic mask (MQTTPrefs::mqtt_slot_extras).
