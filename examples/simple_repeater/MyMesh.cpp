@@ -1193,6 +1193,8 @@ void MyMesh::begin(FILESYSTEM *fs) {
 
 #if defined(WITH_MQTT_BRIDGE) && defined(ESP_PLATFORM)
   NetworkLink& boot_network = activeNetworkLink();
+  // Retained before any Wi-Fi start, so the first association is capped too.
+  boot_network.setWifiTxPower(_cli.getObserverPrefs()->wifi_tx_power);
   if (boot_network.isAutomatic()) {
     applyNetworkHostname("");
     MQTTPrefs* obs = _cli.getObserverPrefs();
@@ -1305,6 +1307,8 @@ void MyMesh::begin(FILESYSTEM *fs) {
 
   updateAdvertTimer();
   updateFloodAdvertTimer();
+
+  board.setAdcMultiplier(_prefs.adc_multiplier);
 
 #if ENV_INCLUDE_GPS == 1
   applyGpsPrefs();
