@@ -41,21 +41,22 @@ class MQTTPrefsSerializer : public ConfigSerializer {
 
   class WifiPrefs : public ConfigSerializer {
     MQTTPrefs* _prefs;
-    int32_t _power_save, _setup_complete, _tx_power;
+    int32_t _power_save, _setup_complete, _ipv6, _tx_power;
     bool _seen_ssid = false, _seen_password = false, _seen_power_save = false;
-    bool _seen_setup_complete = false, _seen_tx_power = false;
+    bool _seen_setup_complete = false, _seen_ipv6 = false, _seen_tx_power = false;
   protected:
     void structure() override {
       defStrict("ssid", _prefs->wifi_ssid, sizeof(_prefs->wifi_ssid), _seen_ssid);
       defStrict("password", _prefs->wifi_password, sizeof(_prefs->wifi_password), _seen_password);
       defStrict("power_save", _power_save, _seen_power_save);
       defStrict("setup_complete", _setup_complete, _seen_setup_complete);
+      defStrict("ipv6", _ipv6, _seen_ipv6);
       defStrict("tx_power", _tx_power, _seen_tx_power);
     }
   public:
     explicit WifiPrefs(MQTTPrefs* prefs)
         : _prefs(prefs), _power_save(prefs->wifi_power_save),
-          _setup_complete(prefs->network_setup_complete),
+          _setup_complete(prefs->network_setup_complete), _ipv6(prefs->wifi_ipv6),
           _tx_power(prefs->wifi_tx_power) {}
     bool apply(bool* repaired) {
       if (_power_save < 0 || _power_save > WifiPowerSavePolicy::kMaxStoredValue) {
@@ -66,6 +67,10 @@ class MQTTPrefsSerializer : public ConfigSerializer {
         _setup_complete = 0;
         *repaired = true;
       }
+      if (_ipv6 < 0 || _ipv6 > 1) {
+        _ipv6 = MQTT_WIFI_IPV6 ? 1 : 0;
+        *repaired = true;
+      }
       if (!WifiTxPowerPolicy::isValidStored(_tx_power)) {
         _tx_power = WifiTxPowerPolicy::kBoardDefault;
         *repaired = true;
@@ -73,6 +78,7 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       _prefs->wifi_tx_power = static_cast<uint8_t>(_tx_power);
       _prefs->wifi_power_save = static_cast<uint8_t>(_power_save);
       _prefs->network_setup_complete = static_cast<uint8_t>(_setup_complete);
+      _prefs->wifi_ipv6 = static_cast<uint8_t>(_ipv6);
       return true;
     }
   };

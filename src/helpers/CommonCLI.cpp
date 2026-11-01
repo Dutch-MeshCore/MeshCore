@@ -27,6 +27,9 @@
 #include "MQTTPrefsCodec.h"
 #include "MQTTPrefsRecovery.h"
 #include "MQTTPrefsSerializer.h"
+#ifdef ESP_PLATFORM
+#include "ESP32Ipv6Preference.h"
+#endif
 #endif
 
 // Believe it or not, this std C function is busted on some platforms!
@@ -106,6 +109,11 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
       _com_prefs_needs_upgrade || loaded_from_legacy);
   loadMQTTPrefs(fs, &legacy_upgrade);
   if (_mqtt_prefs_hold) legacy_upgrade.holdMqttSource();
+#ifdef ESP_PLATFORM
+  // Before the boot network bootstrap, so the first association already
+  // follows the stored setting.
+  Ipv6Preference::setEnabled(_mqtt_prefs.wifi_ipv6 != 0);
+#endif
 
   // For MQTT bridge, migrate bridge.source to RX (logRx) only on fresh installs or upgrades
   // so legacy "tx" is not the default. mqtt.rx / mqtt.tx are separate (fresh default: advert for TX)

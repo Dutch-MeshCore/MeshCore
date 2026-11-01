@@ -960,6 +960,7 @@ void WebConfigServer::handleConfigGet(AsyncWebServerRequest* req) {
     wifi["ssid"] = (const char*)_obs->wifi_ssid;
     wifi["pwd"] = _obs->wifi_password[0] ? SECRET_SENTINEL : "";
     wifi["powersave"] = WifiPowerSavePolicy::nameFor(_obs->wifi_power_save);
+    wifi["ipv6"] = (bool)_obs->wifi_ipv6;
     // Stored dBm (0 = board default) plus what the radio reports, so the form
     // can show the quantized value instead of echoing the request.
     wifi["txpower"] = _obs->wifi_tx_power;

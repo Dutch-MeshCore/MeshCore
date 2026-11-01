@@ -340,13 +340,24 @@ RX/TX, filter, and neighbors changes apply live. `get mqtt.analyzer.us` and
 | `get/set wifi.pwd <password>` | Up to 63 characters; `get` shows it on serial only. `set wifi.pwd ` (trailing space) for an open network |
 | `get/set wifi.powersave none\|min\|max` | Default `none` |
 | `get/set wifi.txpower default\|2..20` | WiFi TX power cap in whole dBm; `default` follows the build's `MQTT_WIFI_TX_POWER`. Applies at once and on every WiFi start, including the setup AP. Replies show what the radio actually applied, which the chip rounds to its own steps |
-| `get link.status` | Active medium, IP, signal, uptime, or the last disconnect reason |
+| `get/set wifi.ipv6 on\|off` | IPv6 on the WiFi station with IPv6-first MQTT, default on. Off stops AAAA lookups at once; the station drops its IPv6 address on the next WiFi reconnect |
+| `get link.status` | Active medium, IP (plus IPv6 when the node has one), signal, uptime, or the last disconnect reason |
 | `get link.diag` | Why Ethernet or WiFi was chosen |
 | `get link.dns` | Live DNS servers and what each medium's DHCP lease supplied |
 | `get wifi.status` | Older WiFi-only form of `link.status` |
 
 The SSID and password take everything after the first space, so spaces are fine and
 quotes are stored literally. New credentials are used on the next reconnect, no reboot needed.
+
+> **IPv6:** with `wifi.ipv6 on` (the default) the WiFi station autoconfigures IPv6 (SLAAC) from
+> router advertisements. When it holds a usable address and the broker has an AAAA record, MQTT
+> connects over IPv6; otherwise it uses IPv4 as before. Two consecutive IPv6 connect failures
+> (refused, unreachable, timeout) switch MQTT to IPv4 for 15 minutes, and a WiFi reconnect clears
+> that. `get link.status` / `get wifi.status` and the web panel's Stats page show the address;
+> `get link.diag` shows `v6:` (`off`, `none`, `preferred` or `suspended`), plus `ip6:` on WiFi-only
+> builds. Debug builds log `MQTT: <host> -> IPv6|IPv4 <addr>` for every broker lookup. DNS still
+> comes from DHCPv4, and NTP, OTA and Ethernet stay IPv4-only. `-D MQTT_WIFI_IPV6=0` changes the
+> default for fresh installs to off.
 
 ### Timezone
 
