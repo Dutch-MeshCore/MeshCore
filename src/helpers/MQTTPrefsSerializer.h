@@ -237,6 +237,7 @@ class MQTTPrefsSerializer : public ConfigSerializer {
       defStrict("audience", _prefs->mqtt_slot_audience[_index],
                 sizeof(_prefs->mqtt_slot_audience[_index]), _seen_audience);
       defStrict("packet_filter", _filter, _seen_filter);
+      defStrict("extras", _extras, _seen_extras);
       defStrict("iata", _prefs->mqtt_slot_iata[_index],
                 sizeof(_prefs->mqtt_slot_iata[_index]), _seen_iata);
     }

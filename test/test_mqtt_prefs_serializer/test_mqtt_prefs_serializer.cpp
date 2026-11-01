@@ -637,6 +637,68 @@ TEST(MQTTPrefsSerializer, RepairsSlotIataCaseAndDropsInvalidOverrides) {
   EXPECT_STREQ("SEA", prefs.mqtt_iata);
 }
 
+TEST(MQTTPrefsSerializer, ExplicitSlotExtrasSurviveSaveAndLoad) {
+  // Each slot holds the opposite of what its preset derives, so a value that is
+  // dropped and re-derived on load cannot pass by coincidence.
+  MQTTPrefs source = defaults();
+  strcpy(source.mqtt_slot_preset[0], "dutchmeshcore-1");
+  source.mqtt_slot_extras[0] = MQTT_SLOT_EXTRAS_NONE;
+  strcpy(source.mqtt_slot_preset[1], "analyzer-eu");
+  source.mqtt_slot_extras[1] = MQTT_SLOT_EXTRAS_ALL;
+  strcpy(source.mqtt_slot_preset[2], "custom");
+  source.mqtt_slot_extras[2] = MQTT_SLOT_EXTRA_FILTER;
+
+  OutputStream output;
+  MQTTPrefsSerializer writer(&source);
+  ASSERT_TRUE(writer.saveSerial(output));
+
+  MQTTPrefs loaded = defaults();
+  InputStream input(output.text());
+  MQTTPrefsSerializer reader(&loaded);
+  ASSERT_TRUE(reader.loadSerial(input)) << output.text();
+  bool repaired = true;
+  ASSERT_TRUE(reader.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, loaded.mqtt_slot_extras[0]);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_ALL, loaded.mqtt_slot_extras[1]);
+  EXPECT_EQ(MQTT_SLOT_EXTRA_FILTER, loaded.mqtt_slot_extras[2]);
+}
+
+TEST(MQTTPrefsSerializer, PrefsWrittenBeforeSlotExtrasDeriveFromThePreset) {
+  // Upgrade path: this is what stops an already-deployed node publishing DMC
+  // topics at a community broker.
+  MQTTPrefs prefs = defaults();
+  prefs.mqtt_slot_extras[0] = MQTT_SLOT_EXTRAS_NONE;
+  prefs.mqtt_slot_extras[1] = MQTT_SLOT_EXTRAS_ALL;
+  InputStream input(
+      "{version:1,mqtt:{slot1:{preset:\"dutchmeshcore-1\"},"
+      "slot2:{preset:\"analyzer-eu\"}}}");
+  MQTTPrefsSerializer serializer(&prefs);
+  ASSERT_TRUE(serializer.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(serializer.apply(&repaired));
+  EXPECT_FALSE(repaired);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_ALL, prefs.mqtt_slot_extras[0]);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, prefs.mqtt_slot_extras[1]);
+}
+
+TEST(MQTTPrefsSerializer, RepairsCorruptSlotExtrasToThePresetDefault) {
+  MQTTPrefs prefs = defaults();
+  InputStream input(
+      "{version:1,mqtt:{slot1:{preset:\"dutchmeshcore-1\",extras:4},"
+      "slot2:{preset:\"analyzer-eu\",extras:-1},"
+      "slot3:{preset:\"analyzer-us\",extras:255}}}");
+  MQTTPrefsSerializer serializer(&prefs);
+  ASSERT_TRUE(serializer.loadSerial(input));
+  bool repaired = false;
+  ASSERT_TRUE(serializer.apply(&repaired));
+  EXPECT_TRUE(repaired);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_ALL, prefs.mqtt_slot_extras[0]);
+  // A damaged file must not re-open DMC topics to a community broker.
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, prefs.mqtt_slot_extras[1]);
+  EXPECT_EQ(MQTT_SLOT_EXTRAS_NONE, prefs.mqtt_slot_extras[2]);
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
