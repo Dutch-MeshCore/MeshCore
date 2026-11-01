@@ -175,7 +175,7 @@ first property of the root object. The main shape is:
 
 ```text
 {version:1,
- wifi:{ssid:"...",password:"...",power_save:1},
+ wifi:{ssid:"...",password:"...",power_save:1,tx_power:0},
  time:{timezone:"...",utc_offset:0,ntp_server:"..."},
  mqtt:{origin:"...",iata:"SEA",packets_enabled:1,raw_enabled:0,
        tx_enabled:2,rx_enabled:1,
@@ -305,3 +305,15 @@ ABIs with size/offset assertions. The runtime `MQTTPrefs` layout is not an on-fl
 - Settings the pre-split firmware stored *inside* the `/com_prefs` MQTT gap (the MQTT
   slot/WiFi config itself) are **not** recovered — users upgrading from firmware that
   old must re-enter their MQTT and WiFi configuration.
+
+### Local testing without hardware
+
+- **Portal UI:** `python3 scripts/webconfig_mock_server.py` (add `--setup` for the
+  first-boot wizard), then open `http://localhost:8080/`. It serves `webui/index.html` and
+  mimics the firmware's `/api/*` behavior. Standard library only.
+- **Boot, WiFi, MQTT, CLI, OLED:** the Wokwi ESP32-S3 sim. Build
+  `pio run -e Heltec_v3_repeater_observer_mqtt_sim -t mergebin` (radio stubbed by
+  `SimRadio`, WiFi set to `Wokwi-GUEST`), then run it from `wokwi.toml`/`diagram.json`.
+  Outbound MQTT works on the free gateway; reaching the on-device portal needs Wokwi's
+  paid Private Gateway.
+- **Host unit tests:** `pio test -e native`; see [test/README.md](test/README.md).

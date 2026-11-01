@@ -18,6 +18,7 @@
 #include "MQTTObserverValidation.h"  // pure input validators (host-testable)
 #include "NetworkLink.h"
 #include "WifiPowerSavePolicy.h"     // one powersave value->mode/name mapping
+#include "WifiTxPowerPolicy.h"       // wifi.txpower parsing and dBm formatting
 #include <Utils.h>
 #include <climits>
 #include <new>
@@ -31,6 +32,7 @@
 #include "MQTTConnectionPolicy.h"  // classifySlotActivation() — "will this slot connect here?"
 #include "MQTTDefaults.h"
 #include "MQTTPacketFilter.h"
+#include "MQTTTopicRouter.h"   // mqttSlotIata() — a slot's effective region code
 #endif
 
 // Local copy of the busted-libc-safe atoi (the original in CommonCLI.cpp is static).
@@ -498,6 +500,37 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
       sprintf(reply, "OK - saved as %s", ps_name);
 #endif
     }
+  } else if (memcmp(config, "wifi.txpower ", 13) == 0) {
+    uint8_t tx_value;
+    if (!WifiTxPowerPolicy::parse(&config[13], &tx_value)) {
+      sprintf(reply, "Error: must be default or %u..%u (dBm)",
+              (unsigned)WifiTxPowerPolicy::kMinDbm, (unsigned)WifiTxPowerPolicy::kMaxDbm);
+    } else {
+      _mqtt_prefs.wifi_tx_power = tx_value;
+      if (!persistObserverPrefs(reply)) return true;
+      char stored[12];
+      if (tx_value == WifiTxPowerPolicy::kBoardDefault) {
+        strcpy(stored, "default");
+      } else {
+        sprintf(stored, "%u dBm", (unsigned)tx_value);
+      }
+#ifdef ESP_PLATFORM
+      // The radio quantizes the request per chip, so report its readback.
+      const int8_t applied = activeNetworkLink().setWifiTxPower(tx_value);
+      if (applied >= 0) {
+        char applied_dbm[8];
+        WifiTxPowerPolicy::formatQdbm(applied_dbm, sizeof(applied_dbm), applied);
+        sprintf(reply, "OK - TX power %s (applied %s dBm)", stored, applied_dbm);
+      } else if (applied == WifiTxPowerPolicy::kApplyFailed) {
+        // Saved; the next association retries it.
+        sprintf(reply, "OK - saved as %s, but failed to apply", stored);
+      } else {
+        sprintf(reply, "OK - saved as %s (will apply when WiFi starts)", stored);
+      }
+#else
+      sprintf(reply, "OK - saved as %s", stored);
+#endif
+    }
   } else if (memcmp(config, "timezone ", 9) == 0) {
     if (valueTooLong(&config[9], sizeof(_mqtt_prefs.timezone_string), reply, "timezone")) return true;
     StrHelper::strncpy(_mqtt_prefs.timezone_string, &config[9], sizeof(_mqtt_prefs.timezone_string));
@@ -540,10 +573,11 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
           _callbacks->restartBridgeSlot(slot);
           // Check if the slot has everything it needs to connect
           const MQTTPresetDef* p = findMQTTPreset(preset_name);
+          const char* slot_iata = mqttSlotIata(_mqtt_prefs.mqtt_iata, _mqtt_prefs.mqtt_slot_iata[slot]);
           if (p && p->topic_style == MQTT_TOPIC_MESHRANK && _mqtt_prefs.mqtt_slot_token[slot][0] == '\0') {
             sprintf(reply, "OK - slot %d preset: %s (run 'set mqtt%d.token <your_token>' to connect)", slot + 1, preset_name, slot + 1);
           } else if (p && p->topic_style == MQTT_TOPIC_MESHCORE &&
-                     (strlen(_mqtt_prefs.mqtt_iata) == 0 || strcmp(_mqtt_prefs.mqtt_iata, "XXX") == 0)) {
+                     (strlen(slot_iata) == 0 || strcmp(slot_iata, "XXX") == 0)) {
             sprintf(reply, "OK - slot %d preset: %s (run 'set mqtt.iata <airport_code>' to publish)", slot + 1, preset_name);
           } else if (p && mqttPresetNeedsSlotPassword(p) &&
                      _mqtt_prefs.mqtt_slot_password[slot][0] == '\0' &&
@@ -639,6 +673,26 @@ bool CommonCLI::handleObserverSetCmd(uint32_t sender_timestamp, const char* conf
         if (!persistObserverPrefs(reply)) return true;
         _callbacks->restartBridgeSlot(slot);
         sprintf(reply, "OK - slot %d topic: %s", slot + 1, _mqtt_prefs.mqtt_slot_topic[slot]);
+      }
+    } else if (strcmp(subcmd, "iata") == 0 || memcmp(subcmd, "iata ", 5) == 0) {
+      // Per-slot region code for MeshCore-style topics. Bare or empty clears
+      // the override so the slot follows mqtt.iata again.
+      const char* iata = subcmd[4] == '\0' ? "" : &subcmd[5];
+      if (iata[0] == '\0') {
+        _mqtt_prefs.mqtt_slot_iata[slot][0] = '\0';
+        if (!persistObserverPrefs(reply)) return true;
+        _callbacks->restartBridgeSlot(slot);
+        sprintf(reply, "OK - slot %d IATA cleared (using mqtt.iata)", slot + 1);
+      } else if (!mqttIataValid(iata)) {
+        strcpy(reply, "Error: IATA code must be exactly 3 letters/digits (e.g. DEN)");
+      } else {
+        StrHelper::strncpy(_mqtt_prefs.mqtt_slot_iata[slot], iata, sizeof(_mqtt_prefs.mqtt_slot_iata[slot]));
+        for (int i = 0; _mqtt_prefs.mqtt_slot_iata[slot][i]; i++) {
+          _mqtt_prefs.mqtt_slot_iata[slot][i] = toupper(_mqtt_prefs.mqtt_slot_iata[slot][i]);
+        }
+        if (!persistObserverPrefs(reply)) return true;
+        _callbacks->restartBridgeSlot(slot);
+        sprintf(reply, "OK - slot %d IATA: %s", slot + 1, _mqtt_prefs.mqtt_slot_iata[slot]);
       }
     } else if (memcmp(subcmd, "audience ", 9) == 0) {
       if (valueTooLong(&subcmd[9], sizeof(_mqtt_prefs.mqtt_slot_audience[slot]), reply, "audience")) return true;
@@ -1058,6 +1112,13 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
       } else {
         strcpy(reply, "> (default: meshcore/{iata}/{device}/{type})");
       }
+    } else if (strcmp(subcmd, "iata") == 0) {
+      if (_mqtt_prefs.mqtt_slot_iata[slot][0] != '\0') {
+        sprintf(reply, "> %s", _mqtt_prefs.mqtt_slot_iata[slot]);
+      } else {
+        sprintf(reply, "> (not set - using mqtt.iata: %s)",
+                _mqtt_prefs.mqtt_iata[0] ? _mqtt_prefs.mqtt_iata : "not set");
+      }
     } else if (memcmp(subcmd, "audience", 8) == 0) {
       if (_mqtt_prefs.mqtt_slot_audience[slot][0] != '\0') {
         sprintf(reply, "> %s", _mqtt_prefs.mqtt_slot_audience[slot]);
@@ -1180,6 +1241,25 @@ bool CommonCLI::handleObserverGetCmd(uint32_t sender_timestamp, const char* conf
     }
   } else if (memcmp(config, "wifi.powersave", 14) == 0) {
     sprintf(reply, "> %s", WifiPowerSavePolicy::nameFor(_mqtt_prefs.wifi_power_save));
+  } else if (memcmp(config, "wifi.txpower", 12) == 0) {
+    char stored[12];
+    if (_mqtt_prefs.wifi_tx_power == WifiTxPowerPolicy::kBoardDefault) {
+      strcpy(stored, "default");
+    } else {
+      sprintf(stored, "%u dBm", (unsigned)_mqtt_prefs.wifi_tx_power);
+    }
+#ifdef ESP_PLATFORM
+    const int8_t applied = activeNetworkLink().appliedWifiTxPower();
+    if (applied >= 0) {
+      char applied_dbm[8];
+      WifiTxPowerPolicy::formatQdbm(applied_dbm, sizeof(applied_dbm), applied);
+      sprintf(reply, "> %s, applied %s dBm", stored, applied_dbm);
+    } else {
+      sprintf(reply, "> %s, not applied yet (WiFi off)", stored);
+    }
+#else
+    sprintf(reply, "> %s", stored);
+#endif
   } else if (memcmp(config, "timezone.offset", 15) == 0) {
     // Must precede the "timezone" (8-byte) check below — that prefix-matches
     // "timezone.offset" too, so the more-specific key has to come first or
