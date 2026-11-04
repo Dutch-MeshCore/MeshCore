@@ -364,7 +364,7 @@ Find more information in [companion_filter_reference.md](companion_filter_refere
 - `filter on` / `filter off`
 - `filter reset` — restore the defaults (counters are not affected)
 - `filter malformed` / `filter malformed <on|off>` — drop group text with a bad timestamp, empty text or invalid UTF-8, on every channel the companion holds
-- `filter age` / `filter age <minutes>|off` — drop group text older than this (1–10080)
+- `filter age` / `filter age <minutes>|off` — drop group text stamped more than this many minutes in the past or future (1–10080)
 - `filter path list|add|remove <hex>` — drop flood adverts and group traffic relayed by a repeater whose ID starts with the prefix (2–8 hex digits, up to 8)
 - `filter sender list|add <name> [secs] [prob]|remove <name>` — hide group text by sender (up to 8; `Bot*` = prefix)
 - `filter text list|add <pattern> [secs] [prob]|remove <pattern>` — hide group text by content (up to 8; `^` = start of message)

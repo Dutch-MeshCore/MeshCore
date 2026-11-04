@@ -130,7 +130,7 @@ bool Filter::allowPacketForward(const mesh::Packet* packet) {
       if (secret != nullptr && _prefs.age_mins > 0 && len >= 4) {
         uint32_t ts;
         memcpy(&ts, &data[0], 4);
-        if (MessageAge::tooOld(ts, _rtc->getCurrentTime(), _prefs.age_mins)) {
+        if (MessageAge::outsideLimit(ts, _rtc->getCurrentTime(), _prefs.age_mins)) {
           FilterStat::recordAge(_cnt);
           return drop(packet);
         }
