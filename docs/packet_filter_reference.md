@@ -62,7 +62,7 @@ that setting actually dropped. See [Statistics](#statistics).
 | `filter watch list` | Channels the rules can read (Public plus the watch list) |
 | `filter watch add <#name>` / `filter watch remove <#name>` | Add or remove a channel the rules read |
 | `filter age` | Current message age limit and its drops |
-| `filter age <minutes>` / `filter age off` | Drop group texts older than this (1-10080 min; see [Message age limit](#message-age-limit)) |
+| `filter age <minutes>` / `filter age off` | Drop group texts stamped more than this far in the past or future (1-10080 min; see [Message age limit](#message-age-limit)) |
 | `filter stats <topic>` | Drops for one topic, in detail |
 
 The same list is available on the device:
@@ -614,8 +614,10 @@ off
 
 # Message Age Limit
 
-Drops group texts whose timestamp is older than a set number of minutes, so old
-messages that are replayed or trickle in late are not repeated again.
+Drops group texts whose timestamp is more than a set number of minutes away
+from the repeater's clock, in either direction. Old messages that are replayed
+or trickle in late are not repeated again, and neither are messages stamped
+ahead of time (a spammer setting the date days into the future).
 
 ```text
 filter age 60
@@ -628,7 +630,8 @@ filter age off
 
 * Range **1-10080 minutes** (one week). `off` or `0` turns it off. Default: off.
 * It checks the time the **sender** put in the message against the repeater's
-  own clock. A message stamped in the future is never counted as old.
+  own clock. The same limit applies to stamps in the future: with
+  `filter age 60` a message stamped more than an hour ahead is dropped too.
 * Only channels the repeater can read are checked: **Public**, plus any `#`
   channel on the [watch list](#which-channels-the-rules-can-read). Direct
   messages and other channels are encrypted with keys the repeater does not
@@ -643,8 +646,8 @@ than 2026, the age limit does nothing, and `filter age` shows
 wrong in the same way, so check `clock` before relying on it.
 
 **Choose a margin for other people's clocks.** A phone or node whose clock runs
-behind stamps its messages in the past. With a tight limit its messages look
-old and are dropped. Start generous (for example `filter age 60`), try it with
+behind stamps its messages in the past, one whose clock runs ahead stamps them
+in the future. With a tight limit either kind is dropped. Start generous (for example `filter age 60`), try it with
 `filter dryrun on`, and check `filter stats age` before going lower.
 
 ---
