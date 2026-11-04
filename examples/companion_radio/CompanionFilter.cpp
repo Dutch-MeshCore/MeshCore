@@ -86,7 +86,7 @@ CFilterVerdict CompanionFilter::checkGroupText(const uint8_t* data, int len, uin
   if (_prefs.age_mins > 0 && len >= 4) {
     uint32_t ts;
     memcpy(&ts, data, 4);
-    if (MessageAge::tooOld(ts, now_secs, _prefs.age_mins)) {
+    if (MessageAge::outsideLimit(ts, now_secs, _prefs.age_mins)) {
       FilterStat::recordAge(_cnt);
       return CFilterVerdict::DROP;
     }
