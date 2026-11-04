@@ -245,29 +245,38 @@ TEST(MessageAge, ClockSetOnlyFromTheCutoffOn) {
 }
 
 TEST(MessageAge, OffWhenMaxIsZero) {
-  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW - 30 * 24 * 3600, CLOCK_NOW, 0));
+  EXPECT_FALSE(MessageAge::outsideLimit(CLOCK_NOW - 30 * 24 * 3600, CLOCK_NOW, 0));
 }
 
 TEST(MessageAge, DropsOnlyWhatIsOlderThanTheLimit) {
-  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW, CLOCK_NOW, 30));
-  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW - 30 * MIN_S, CLOCK_NOW, 30));   // exactly at the limit
-  EXPECT_TRUE(MessageAge::tooOld(CLOCK_NOW - 30 * MIN_S - 1, CLOCK_NOW, 30));
-  EXPECT_TRUE(MessageAge::tooOld(CLOCK_NOW - 3 * 24 * 3600, CLOCK_NOW, 30));
+  EXPECT_FALSE(MessageAge::outsideLimit(CLOCK_NOW, CLOCK_NOW, 30));
+  EXPECT_FALSE(MessageAge::outsideLimit(CLOCK_NOW - 30 * MIN_S, CLOCK_NOW, 30));   // exactly at the limit
+  EXPECT_TRUE(MessageAge::outsideLimit(CLOCK_NOW - 30 * MIN_S - 1, CLOCK_NOW, 30));
+  EXPECT_TRUE(MessageAge::outsideLimit(CLOCK_NOW - 3 * 24 * 3600, CLOCK_NOW, 30));
 }
 
-TEST(MessageAge, FutureStampIsNeverTooOld) {
-  EXPECT_FALSE(MessageAge::tooOld(CLOCK_NOW + 10 * MIN_S, CLOCK_NOW, 1));
+TEST(MessageAge, DropsWhatIsStampedFurtherAheadThanTheLimit) {
+  // a spoofed stamp days ahead (still inside the malformed scan's week) would
+  // otherwise never age out within the limit
+  EXPECT_FALSE(MessageAge::outsideLimit(CLOCK_NOW + 30 * MIN_S, CLOCK_NOW, 30));   // exactly at the limit
+  EXPECT_TRUE(MessageAge::outsideLimit(CLOCK_NOW + 30 * MIN_S + 1, CLOCK_NOW, 30));
+  EXPECT_TRUE(MessageAge::outsideLimit(CLOCK_NOW + 56 * 3600, CLOCK_NOW, 30));
+  EXPECT_FALSE(MessageAge::outsideLimit(CLOCK_NOW + 10 * MIN_S, CLOCK_NOW, 60));
 }
 
-TEST(MessageAge, ZeroStampIsTooOld) {
-  EXPECT_TRUE(MessageAge::tooOld(0, CLOCK_NOW, 60));
+TEST(MessageAge, FutureStampIsNotJudgedWhileTheClockIsUnset) {
+  EXPECT_FALSE(MessageAge::outsideLimit(BOOT_CLOCK + 3 * 24 * 3600, BOOT_CLOCK, 30));
+}
+
+TEST(MessageAge, ZeroStampIsOutsideTheLimit) {
+  EXPECT_TRUE(MessageAge::outsideLimit(0, CLOCK_NOW, 60));
 }
 
 TEST(MessageAge, InactiveWhileTheClockIsUnset) {
   // an unset clock would make every current message look far in the future,
   // and a message stamped before boot look old: never judge age against it
-  EXPECT_FALSE(MessageAge::tooOld(BOOT_CLOCK - 3 * 24 * 3600, BOOT_CLOCK, 30));
-  EXPECT_FALSE(MessageAge::tooOld(0, BOOT_CLOCK, 30));
+  EXPECT_FALSE(MessageAge::outsideLimit(BOOT_CLOCK - 3 * 24 * 3600, BOOT_CLOCK, 30));
+  EXPECT_FALSE(MessageAge::outsideLimit(0, BOOT_CLOCK, 30));
 }
 
 TEST(MessageAge, LimitIsCappedAtOneWeek) {
