@@ -10,7 +10,7 @@ engine, list syntax and reply formats where the two overlap.
 It filters on:
 
 * Malformed group text (zero or implausible timestamp, empty text, invalid UTF-8)
-* Message age (group text older than N minutes)
+* Message age (group text stamped more than N minutes in the past or future)
 * Blocked path prefixes (anything relayed by one specific repeater)
 * Sender name or message text of a group text (block, throttle, or dose)
 
@@ -110,8 +110,9 @@ filter age 60
 > Filter: OK
 ```
 
-Drops group text stamped more than this many minutes ago (1–10080, or `off`).
-Stale messages are what a misbehaving node replays hours later. Inactive while
+Drops group text stamped more than this many minutes ago or ahead (1–10080, or
+`off`). Stale messages are what a misbehaving node replays hours later; stamps
+in the future are what a spammer uses to dodge the past-only check. Inactive while
 this node's clock is not set; companions usually get the time from the app.
 
 ---
