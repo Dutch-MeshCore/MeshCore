@@ -1873,7 +1873,7 @@ void MyMesh::publishFilterStatsIfDue(uint32_t now) {
   v.dc_gate_hysteresis = _prefs.dc_gate_hysteresis;
 
   char origin[32];
-  MQTTBridge::getEffectiveMqttOrigin(&_prefs, _cli.getObserverPrefs(), origin, sizeof(origin));
+  MQTTBridge::getEffectiveMqttOrigin(_prefs.node_name, _cli.getObserverPrefs(), origin, sizeof(origin));
   char self_pubkey_hex[65];
   mesh::Utils::toHex(self_pubkey_hex, self_id.pub_key, PUB_KEY_SIZE);
   char timestamp[40];
@@ -2007,7 +2007,7 @@ void MyMesh::publishConfigIfDue(uint32_t now) {
 
   // identity + time (mirror the filter-stats snapshot)
   char origin[32];
-  MQTTBridge::getEffectiveMqttOrigin(&_prefs, op, origin, sizeof(origin));
+  MQTTBridge::getEffectiveMqttOrigin(_prefs.node_name, op, origin, sizeof(origin));
   char self_pubkey_hex[65];
   mesh::Utils::toHex(self_pubkey_hex, self_id.pub_key, PUB_KEY_SIZE);
   char timestamp[40];
