@@ -13,6 +13,11 @@ name: DMC Firmware Release
 #   room-server-mqtt    dmc-observer-dev     *_room_server_observer_mqtt   DMC Room Server MQTT Firmware
 #   observer-mqtt       dmc-observer-dev     *_observer_mqtt               DMC MQTT Observer Firmware
 #   companion           dmc-dev              *_companion_radio_ble/_wifi   DMC Companion Filter Firmware
+#   companion-observer  dmc-observer-dev     *_companion_observer_wifi     DMC Companion Observer Firmware
+#
+# companion-observer is a Wi-Fi companion radio + MQTT observer in one image; it reports
+# vX.Y.Z[-dev]-dutchmeshcore.nl-comp-obs-<hash>. It has no pull OTA, so its rolling
+# dmc-companion-observer-dev release only feeds the Toolbox flasher, never the OTA server.
 #
 # channel=dev      refreshes the rolling prerelease (dmc-<firmware>-dev; observer-mqtt-dev
 #                  for observer-mqtt) in place: built with DMC_CHANNEL=dev, assets replaced,
@@ -44,6 +49,7 @@ on:
           - room-server-mqtt
           - observer-mqtt
           - companion
+          - companion-observer
       channel:
         description: "dev = refresh the rolling prerelease (MQTT: observer-mqtt only); release = new versioned draft"
         type: choice
@@ -104,6 +110,7 @@ jobs:
             room-server-mqtt)   REF=dmc-observer-dev;  PATTERN='_room_server_observer_mqtt$'; TITLE='DMC Room Server MQTT Firmware'; VARIANT_TAG='-observer-mqtt' ;;
             observer-mqtt)      REF=dmc-observer-dev;  PATTERN='_observer_mqtt$';             TITLE='DMC MQTT Observer Firmware';    VARIANT_TAG='-observer-mqtt' ;;
             companion)          REF=dmc-dev;           PATTERN='_companion_radio_(ble|wifi)$'; TITLE='DMC Companion Filter Firmware' ;;
+            companion-observer) REF=dmc-observer-dev;  PATTERN='_companion_observer_wifi$';   TITLE='DMC Companion Observer Firmware'; VARIANT_TAG='-comp-obs' ;;
             *) echo "::error::unknown firmware '$FIRMWARE'"; exit 1 ;;
           esac
           if [ -n "$REF_OVERRIDE" ]; then REF="$REF_OVERRIDE"; fi
@@ -424,6 +431,9 @@ jobs:
             if [ "$FIRMWARE" = companion ]; then
               echo
               echo "The receive filter is off until enabled (\`filter on\`). Upgrading from meshcomod: flash the app \`.bin\`, not the \`-merged.bin\`, so the settings are kept. Wi-Fi: set the network with \`set wifi.ssid\` / \`set wifi.pwd\` over USB."
+            elif [ "$FIRMWARE" = companion-observer ]; then
+              echo
+              echo "Wi-Fi companion radio and MQTT observer in one image: the MeshCore app connects over Wi-Fi (TCP port 5000) and heard packets go to the configured MQTT brokers. Set up over USB (\`set wifi.ssid\`, \`set wifi.pwd\`, \`set mqtt.iata\`, \`set mqtt1.preset ...\`), then reboot. Shares \`/mqtt.json\` with the repeater observer. The DMC receive filter is included (\`filter on\`). No pull OTA, SNMP, web config portal, fault alerts or self-heal; update over USB. Heltec V3 (no PSRAM) is limited to 150 contacts and 2 MQTT slots."
             fi
           } > notes.md
 
