@@ -2120,7 +2120,10 @@ void MyMesh::loop() {
     MESH_DEBUG_PRINTLN("duty gate: disabled, gating lifted");
   }
 
-  now = millis();
+  // update uptime
+  uint32_t now = millis();
+  uptime_millis += now - last_millis;
+  last_millis = now;
 
 #ifdef WITH_MQTT_BRIDGE
   _alerter.onLoop(now);
