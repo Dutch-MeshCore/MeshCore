@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 #include <math.h>
 
 #define MAX_HASH_SIZE        8
@@ -71,11 +72,16 @@ public:
   }
   virtual bool stopOTAUpdate(char* reply) { (void)reply; return false; }
   virtual bool isOTAUpdateInProgress() const { return false; }
+  virtual bool isOTAPortalOpen() const { return false; }
   virtual void maintainOTAUpdate(uint32_t now_ms) { (void)now_ms; }
   // Pull-based OTA: fetch the firmware build for this variant from a baked-in manifest and flash it.
   // current_ver is the running firmware version string (used to skip if already up to date); when
   // dry_run is true the build is only reported, not flashed. Observer (ESP32+WiFi) builds only.
   virtual bool otaFromManifest(const char* manifest_base, const char* current_ver, bool dry_run, char reply[]) { return false; }
+  // The board and current_ver must outlive the background check.
+  virtual void otaCheck(uint8_t channel, const char* current_ver, char reply[]) {
+    strcpy(reply, "ERR: online OTA not supported on this build");
+  }
 
   // Power management interface (boards with power management override these)
   virtual bool isPwrMgtInitialised() const { return false; }

@@ -29,8 +29,18 @@ static bool is_whitespace(char c) {
 static bool is_key_start_char(char c) {
   return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
 }
+static bool is_digit(char c) {
+  return c >= '0' && c <= '9';
+}
 static bool is_key_char(char c) {
-  return is_key_start_char(c) || (c >= '0' && c <= '9');
+  return is_key_start_char(c) || is_digit(c);
+}
+// DMC: a key is either an identifier (letter/'_' first, then letters, digits, '_')
+// or an all-digit index key ("0", "12"). The companion filter stores its rule lists
+// as {0:{...},1:{...}} in /cfilter.json; mixed keys such as "1slot" stay rejected.
+static bool key_accepts(const char* key_so_far, uint8_t len, char c) {
+  if (len == 0) return is_key_start_char(c) || is_digit(c);
+  return is_digit(key_so_far[0]) ? is_digit(c) : is_key_char(c);
 }
 static bool is_value_char(char c) {
   return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || c == '-' || c == '.';
@@ -79,8 +89,7 @@ read_key:
       if (rd_len == 0 && c == '}') { rd_mode = EXPECT_COMMA_OR_KEY_OR_CLOSE; return TOK_END_OBJ; }  // empty object after whitespace
       if (rd_len > 0 && c == ':') { rd_buf[rd_len] = 0; rd_len = 0; rd_mode = EXPECT_VAL_OR_OBJ; return TOK_KEY; }
       if (rd_len == 0 && is_whitespace(c)) return TOK_WHITESPACE;
-      if (rd_len < CONFIG_MAX_KEYLEN-1 &&
-          ((rd_len == 0 && is_key_start_char(c)) || (rd_len > 0 && is_key_char(c)))) {
+      if (rd_len < CONFIG_MAX_KEYLEN-1 && key_accepts(rd_buf, rd_len, c)) {
         rd_buf[rd_len++] = c;
         return TOK_WHITESPACE;
       }

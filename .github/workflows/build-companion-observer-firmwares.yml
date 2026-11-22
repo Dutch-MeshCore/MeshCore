@@ -1,0 +1,58 @@
+name: Build Companion Observer Firmwares
+
+permissions:
+  contents: write
+
+on:
+  # Dispatch-only, like the other DMC MQTT firmware sets. DMC releases are built
+  # locally (scripts/publish-release.sh build-companion-observer-firmwares ...) to
+  # avoid spending Actions runner minutes; the "Run workflow" button remains as a
+  # runner fallback.
+  #
+  # Builds every *_companion_observer_wifi env: a Wi-Fi companion radio and an MQTT
+  # observer in one image. These builds have no pull OTA, so they are kept out of
+  # the observer-mqtt-* rolling release that feeds the OTA server.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Firmware version, e.g. v1.18.0 (used as FIRMWARE_VERSION and release name)'
+        required: true
+        type: string
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Clone Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Firmwares
+        env:
+          FIRMWARE_VERSION: ${{ inputs.version }}
+        run: /usr/bin/env bash build.sh build-companion-observer-firmwares
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-observer-firmwares
+          path: out
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ format('dmc-companion-observer-{0}', inputs.version) }}
+          name: DMC Companion Observer Firmware ${{ inputs.version }}
+          body: |
+            Wi-Fi companion radio and MQTT observer in one image. The MeshCore app connects over Wi-Fi (TCP port 5000); heard packets go to the configured MQTT brokers.
+
+            Set up over USB: `set wifi.ssid`, `set wifi.pwd`, `set mqtt.iata`, `set mqtt1.preset ...`, then reboot. Shares `/mqtt.json` with the repeater observer, so you can flash between the two without setting up again.
+
+            Not on this firmware: pull OTA (update over USB), SNMP, the web config portal, fault alerts, MQTT self-heal. Heltec V3 (no PSRAM) is limited to 150 contacts and 2 MQTT slots.
+          draft: true
+          prerelease: true
+          files: out/*

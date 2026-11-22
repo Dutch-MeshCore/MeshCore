@@ -28,6 +28,7 @@
 
 #ifdef WITH_MQTT_BRIDGE
 #include "helpers/bridges/MQTTBridge.h"
+#include "helpers/bridges/ObserverBridgeControl.h"
 #define WITH_BRIDGE
 #include "helpers/esp32/WebConfigServer.h"   // defines WITH_WEBCONFIG on ESP32
 #endif
@@ -94,6 +95,9 @@ struct NeighbourInfo {
 #define PACKET_LOG_FILE  "/packet_log"
 
 class MyMesh : public mesh::Mesh, public CommonCLICallbacks
+#ifdef WITH_MQTT_BRIDGE
+  , public MQTTBridgeHost
+#endif
 #ifdef WITH_WEBCONFIG
     , public WebConfigServer::Callbacks
 #endif
@@ -143,8 +147,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
   ESPNowBridge bridge;
 #elif defined(WITH_MQTT_BRIDGE)
   MQTTBridge* bridge;
-  // begin() was refused after an unproven stop; restart once the task acknowledges.
-  bool _bridge_resume_pending = false;
+  ObserverBridgeControl<MQTTBridge> _bridge_ctl;
 #endif
 #ifdef WITH_SNMP
   MeshSNMPAgent _snmp_agent;
@@ -157,9 +160,6 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
 #endif
 #ifdef WITH_WEBCONFIG
   WebConfigServer* _webconfig = NULL;  // heap-allocated while running, freed on stop
-  bool _wc_batch_active = false;       // coalesce bridge restarts during a config batch
-  bool _wc_restart_pending = false;
-  uint8_t _wc_slot_restart_mask = 0;
 #endif
 
 #if defined(WITH_MQTT_NEIGHBORS)
@@ -192,6 +192,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
   bool neighbor_discover_active;          // scope-query phase in flight
   bool neighbor_table_refresh_active;     // zero-hop table refresh (stage 1) in flight
   bool neighbor_table_refresh_periodic;   // that refresh was kicked by the periodic timer
+  bool neighbor_discover_periodic;       // scope pass came from the periodic cycle
   unsigned long neighbor_discover_until;  // current queue or response deadline
   mesh::Packet* neighbor_discover_request; // request awaiting TX completion
   unsigned long next_neighbors_publish;   // periodic publish deadline (0 = fire ASAP)
@@ -205,9 +206,11 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks
   bool completeNeighborDiscoverEntry();
   void resetNeighborDiscoverJsonBudget();
   bool neighborDiscoverReady(char* reply);
-  bool startNeighborDiscover(char* reply);
+  bool startNeighborDiscover(char* reply, bool periodic);
   void loopNeighborDiscover();
   void finishNeighborDiscover();
+  void clearNeighborDiscoverState();
+  void abortNeighborDiscover();
   bool handleNeighborDiscoverResponse(int overlay_idx, const uint8_t* data, size_t len);
   void touchNeighbourHeard(const mesh::Identity& id, uint32_t heard_timestamp);
   void getLocalScopes(char* buf, size_t len);
@@ -375,6 +378,16 @@ public:
 
   mesh::LocalIdentity& getSelfId() override { return self_id; }
 
+#ifdef WITH_MQTT_BRIDGE
+  // MQTTBridgeHost
+  const char* getObserverNodeName() const override { return _prefs.node_name; }
+  void getObserverRadioParams(float& freq, float& bw, uint8_t& sf, uint8_t& cr) const override {
+    freq = _prefs.freq; bw = _prefs.bw; sf = _prefs.sf; cr = _prefs.cr;
+  }
+  bool isObserverForwarding() const override { return !_prefs.disable_fwd; }
+  const char* getObserverRole() const override { return "repeater"; }
+#endif
+
   void saveIdentity(const mesh::LocalIdentity& new_id) override;
   void clearStats() override;
 
@@ -382,85 +395,20 @@ public:
   void loop();
 
 #if defined(WITH_BRIDGE)
-  void setBridgeState(bool enable) override {
-    if (!bridge) {
-#ifdef WITH_MQTT_BRIDGE
-      bridge = new MQTTBridge(&_prefs, _cli.getObserverPrefs(), _mgr, getRTCClock(), &self_id);
-#endif
-      if (!bridge) return;
-    }
-#ifdef WITH_MQTT_BRIDGE
-    if (!enable) _bridge_resume_pending = false;   // an explicit stop cancels a pending resume
-#endif
-    if (enable == bridge->isRunning()) return;
-    if (enable)
-    {
-      // Set device metadata before starting bridge (same as in begin())
-      char device_id[65];
-      mesh::LocalIdentity self_id = getSelfId();
-      mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
-      bridge->setDeviceID(device_id);
-      bridge->setFirmwareVersion(getFirmwareVer());
-      bridge->setBoardModel(_cli.getBoard()->getManufacturerName());
-      bridge->setBuildDate(getBuildDate());
-#ifdef WITH_MQTT_BRIDGE
-      bridge->setStatsSources(this, _radio, _cli.getBoard(), _ms);
-#endif
-      bridge->begin();
-#ifdef WITH_MQTT_BRIDGE
-      _alerter.setBridge(bridge);
-      _bridge_resume_pending = !bridge->isRunning() && bridge->isStopUnproven();
-#endif
-    }
-    else
-    {
-      bridge->end();
-#ifdef WITH_MQTT_BRIDGE
-      _alerter.setBridge(nullptr);
-      _bridge_resume_pending = false;
-#endif
-    }
-  }
+  void setBridgeState(bool enable) override { _bridge_ctl.setState(*this, bridge, enable); }
+  void restartBridge() override { _bridge_ctl.restart(*this, bridge); }
+  void restartBridgeSlot(int slot) override { _bridge_ctl.restartSlot(*this, bridge, slot); }
 
-  void restartBridge() override {
-    if (!bridge || !bridge->isRunning()) return;
-#ifdef WITH_WEBCONFIG
-    if (_wc_batch_active) {   // coalesced: applied once in onConfigBatchEnd()
-      _wc_restart_pending = true;
-      return;
-    }
-#endif
-    bridge->end();
-    // Set device metadata before restarting bridge (same as in begin())
-    char device_id[65];
-    mesh::LocalIdentity self_id = getSelfId();
-    mesh::Utils::toHex(device_id, self_id.pub_key, PUB_KEY_SIZE);
-    bridge->setDeviceID(device_id);
-    bridge->setFirmwareVersion(getFirmwareVer());
-    bridge->setBoardModel(_cli.getBoard()->getManufacturerName());
-    bridge->setBuildDate(getBuildDate());
-#ifdef WITH_MQTT_BRIDGE
-    bridge->setStatsSources(this, _radio, _cli.getBoard(), _ms);
-#endif
-    bridge->begin();
-#ifdef WITH_MQTT_BRIDGE
-    _bridge_resume_pending = !bridge->isRunning() && bridge->isStopUnproven();
-#endif
-  }
-
-  void restartBridgeSlot(int slot) override {
-#ifdef WITH_MQTT_BRIDGE
-    if (!bridge || !bridge->isRunning()) return;
-#ifdef WITH_WEBCONFIG
-    if (_wc_batch_active && slot >= 0 && slot < 8) {
-      _wc_slot_restart_mask |= (uint8_t)(1u << slot);
-      return;
-    }
-#endif
-    bridge->setSlotPreset(slot, _cli.getObserverPrefs()->mqtt_slot_preset[slot]);
-#else
-    (void)slot;
-#endif
+  // ObserverBridgeControl hooks
+  MQTTBridge* newBridge() { return new MQTTBridge(this, _cli.getObserverPrefs(), _mgr, getRTCClock(), &self_id); }
+  void prepareBridgeStart(MQTTBridge* b, bool restart);
+  void setAlertBridge(MQTTBridge* b) { _alerter.setBridge(b); }
+  bool flashFromManifest(char* reply);
+  bool isDeferredOtaUpdatePending() override { return _bridge_ctl.otaPending(_ota_update_at); }
+  void rebootForSelfHeal() { _cli.getBoard()->reboot(); }
+  bool isOtaInProgress() {
+    return _ota_update_at != 0 || _cli.getBoard()->isOTAPortalOpen() ||
+           _cli.getBoard()->isOTAUpdateInProgress();
   }
 
 #if defined(WITH_MQTT_BRIDGE)
@@ -548,12 +496,8 @@ public:
   void rebootNow() override {
     _cli.getBoard()->reboot();
   }
-  void onConfigBatchStart() override {
-    _wc_batch_active = true;
-    _wc_restart_pending = false;
-    _wc_slot_restart_mask = 0;
-  }
-  void onConfigBatchEnd() override;
+  void onConfigBatchStart() override { _bridge_ctl.beginConfigBatch(); }
+  void onConfigBatchEnd() override { _bridge_ctl.endConfigBatch(*this, bridge, RUNTIME_MQTT_SLOTS); }
   bool onInitialSetupComplete() override {
     // The password command does not report its save; make it durable first.
     if (!_cli.savePrefs(_fs)) return false;

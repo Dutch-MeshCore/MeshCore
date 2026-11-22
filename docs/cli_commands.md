@@ -94,7 +94,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ### Online firmware update (observer builds)
 
-- `ota check`: reports whether the release manifest has a newer build for this board. Does not flash.
+- `ota check`: starts a background manifest check and returns immediately; read again in a few seconds for the cached result and its age. Results (including errors) refresh on a read after 60 seconds. Does not flash or stop the bridge. `ota update` refuses while a check runs; retry after it finishes.
 - `ota update`: downloads and flashes the newer build, then reboots. Refuses builds that change the partition table (flash those by cable).
 - `ota branch`: shows the selected channel, the channel this build came from, and the manifest URL.
 - `ota branch prod` (alias `stable`) / `ota branch beta` (alias `dev`): pull future updates from that channel. The choice is saved; run `ota update` to switch.
@@ -1643,13 +1643,18 @@ Covers serial NMEA receivers (`MicroNMEALocationProvider`).
 #### View or change periodic neighbors publishing (MQTT observer, PSRAM only)
 **Usage:**
 - `get mqtt.neighbors`
-- `set mqtt.neighbors <on|off>`
+- `set mqtt.neighbors <auto|on|off>`
 
 **Parameters:**
-- `on`: periodically discover neighbor scopes and publish the neighbor table to the `neighbors` topic
+- `auto`: run the periodic cycle only while a slot uses a preset whose broker asks for
+  neighbor data (`cascadiamesh`, `chimesh`, `comchan`, `meshat.se`, `meshmapper`,
+  `rflab`, `virginiamesh`) or is set with
+  `mqtt<N>.neighbors on`, and publish it only to those slots
+- `on`: periodically discover neighbor scopes and publish the neighbor table to every
+  connected slot's `neighbors` topic
 - `off`: disable periodic neighbors publishing
 
-**Default:** `off`
+**Default:** `auto`
 
 > **Note:** Requires a build with the neighbors feature compiled in (all PSRAM
 > boards, plus non-PSRAM boards built with `MQTT_NEIGHBORS_WITHOUT_PSRAM`);
@@ -1658,8 +1663,36 @@ Covers serial NMEA receivers (`MicroNMEALocationProvider`).
 > set `truncated` with the true `total_neighbors` when the table is larger.
 > The setting is read live by the mesh
 > loop — no restart required; enabling it triggers a discovery on the next pass.
-> While enabled, `get mqtt.status` gains a trailing `nbr: <next>/<last>` field
-> (time to next publish, and how the last publish went).
+> In `auto`, `get mqtt.neighbors` shows `auto (active)` or `auto (inactive)`.
+> While the periodic cycle runs, `get mqtt.status` gains a trailing
+> `nbr: <next>/<last>` field (time to next publish, and how the last publish went).
+> A manual `discover.scopes` publishes to every connected slot not set
+> `mqtt<N>.neighbors off`, in any mode. Per-slot overrides are described below.
+>
+> Before `auto` existed the default was `off`. Nodes that never changed it upgrade to
+> `auto`; so do nodes set to `off` on that older firmware, because both were stored
+> as the same value. An `off` set on this firmware survives a rollback and
+> re-upgrade, unless a setting is changed while the older firmware runs.
+
+---
+
+#### View or change neighbors for one MQTT slot (MQTT observer, PSRAM only)
+**Usage:**
+- `get mqtt<N>.neighbors`
+- `set mqtt<N>.neighbors <auto|on|off>`
+
+**Parameters:**
+- `N`: slot number, 1–6
+- `auto`: follow `mqtt.neighbors` — send when it is `on`, or when it is `auto` and this
+  slot's preset asks for neighbor data
+- `on`: send periodic snapshots to this slot (unless `mqtt.neighbors` is `off`)
+- `off`: never send neighbor snapshots to this slot, including manual `discover.scopes`
+
+**Default:** `auto`
+
+> **Note:** `get` also shows whether periodic snapshots currently reach the slot, e.g.
+> `> auto (periodic: yes)`. Applies live; no restart needed. Use `on` to send
+> neighbors to a custom broker without sending them to every other slot.
 
 ---
 
@@ -1705,6 +1738,31 @@ Covers serial NMEA receivers (`MicroNMEALocationProvider`).
 
 ---
 
+#### View or change the MQTT reconnect probe interval (MQTT observer only)
+**Usage:**
+- `get mqtt.breaker.interval`
+- `set mqtt.breaker.interval <minutes>`
+
+**Parameters:**
+- `minutes`: how often a slot that has stopped reconnecting tries its broker again (10–30)
+
+**Default:** `30` (minutes)
+
+> **Note:** A disconnected slot retries after 10 s, 30 s, 1 min, 2 min, then every 5 min. After three more failed 5-minute retries it stops and waits this interval between single attempts. This setting does not change how often WiFi reconnects (every 5 min at most). When WiFi reconnects, each disconnected slot retries right away. Takes effect immediately; out-of-range values are rejected.
+
+---
+
+#### View or change MQTT self-heal (MQTT observer only)
+**Usage:**
+- `get mqtt.selfheal`
+- `set mqtt.selfheal <on|off>`
+
+**Default:** `off`
+
+> **Note:** When the observer is stuck in a state only a reboot clears, the node sends an alert and reboots 1 min later. The states are a bridge stop that never completed (10 min), an MQTT client that could not be stopped (30 min), and every slot down for 2 h while NTP shows the internet is reachable. The all-slots-down hold adds up to 30 min of per-node random delay, chosen once at boot. Slots refused by their broker (wrong credentials) do not count. A node must be up 30 min first, each consecutive self-heal reboot doubles the wait (up to 8x), and after 5 in a row it only alerts. All-slots-down gets one reboot per outage, and only if no self-heal reboot of any cause has occurred since the last healthy period; after that it only alerts. Ten healthy minutes resets the count and re-arms all-slots-down, either with a connected slot or with the bridge deliberately off and clean. `get` also shows the last self-heal cause and count, or `none`. The repeater keeps working in all of these states.
+
+---
+
 #### View or change the NTP server (MQTT observer only)
 **Usage:**
 - `get mqtt.ntp`
@@ -1723,12 +1781,36 @@ Covers serial NMEA receivers (`MicroNMEALocationProvider`).
 **Usage:**
 - `get mqtt.ntp.diag`
 
-**Description:** Probes every configured NTP server (the custom primary, if set, plus the built-in fallbacks) and reports whether each responds. This is a pure connectivity diagnostic — it does **not** change the system clock.
+**Description:** Probes every configured NTP server (the custom primary, if set, plus the built-in fallbacks) and reports whether each responds. This is a pure connectivity diagnostic — it does **not** change the system clock. The command returns immediately: it reports the last completed probe and starts a fresh one in the background when the results are missing or more than 30 seconds old. A read taken while a probe is running says so; read again a few seconds later for the fresh results.
 
 - **Serial console:** prints a detailed table with each server's reported UTC time (or `FAIL`).
-- **Over LoRa:** returns a compact `<server> ok|fail` list, one per line.
+- **Over LoRa:** returns the probe number and its age, then a compact `<server> ok|fail` list, one per line.
 
 Requires WiFi connected and the MQTT bridge running.
+
+---
+
+#### View MQTT task stack headroom (MQTT observer only)
+**Usage:**
+- `get mqtt.stacks`
+
+**Output:** `> stk b=<bytes> l=<bytes> m1=<bytes> ...`, e.g. `> stk b=4032 l=3340 m1=1668 m2=1628`. Each value is the stack high-water mark (free bytes) for the MQTT bridge task (`b=`), the main loop task (`l=`, shown when the command runs from the loop task), the AsyncTCP task when it exists (`a=`), and each enabled slot's MQTT client task (`m1=` and so on). Fields that are not available are omitted.
+
+---
+
+#### View the last crash report (MQTT observer only)
+**Usage:**
+- `get crash`
+
+**Output:** `> task=<name> pc=<hex> exc=<n> va=<hex> sha=<hex> bt=<hex> <hex> ...`, e.g. `> task=loopTask pc=42011bae exc=28 va=0000f8ba sha=1a499497 bt=42011bae 42003879 4200911a`, or `> none` when there is no dump and `> none (dump unreadable)` when a dump exists but could not be read back. After a panic the node reads the saved core dump from flash and shows the faulting task, program counter, exception cause, faulting address, the first 8 hex digits of the firmware's ELF SHA-256, and the backtrace addresses. A trailing `!` means the backtrace was flagged corrupt.
+
+---
+
+#### Erase the stored crash dump (MQTT observer only)
+**Usage:**
+- `clear crash`
+
+**Output:** `OK - crash dump cleared`, or `ERR: crash dump erase failed`. Erases the core dump from flash and drops the record. The dump is also erased automatically after the first status message that carried it.
 
 ---
 

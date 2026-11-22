@@ -231,6 +231,9 @@ class WiFiNetworkLink final : public NetworkLinkBase {
   char _password[65] = {};
   unsigned long _last_reconnect_attempt = 0;
   uint8_t _reconnect_backoff_attempt = 0;
+  // Set by the WiFi event task, consumed by maintain().
+  std::atomic<bool> _prompt_reconnect_pending{false};
+  std::atomic<bool> _prompt_reconnect_used{false};  // one per outage
   // The CLI (loop task), maintain() (MQTT task) and the WiFi event task all
   // apply; the lock keeps a delayed apply from restoring an older value.
   std::mutex _tx_power_mutex;
@@ -348,9 +351,13 @@ class WiFiNetworkLink final : public NetworkLinkBase {
     // Core 3.x keeps this as a flag the station applies when it starts.
     WiFi.enableIPv6(Ipv6Preference::enabled());
 #endif
+    // Scan every channel and join the strongest AP; the default takes the first one found.
+    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+    WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     // Before WiFi.begin() so association and the handshake honor the cap too.
     applyTxPower();
 
+    static_assert(MQTTConnectionPolicy::kWifiReasonAssocLeave == WIFI_REASON_ASSOC_LEAVE, "wifi reason drift");
     if (!_event_registered) {
       WiFi.onEvent([this](WiFiEvent_t event, WiFiEventInfo_t info) {
         switch (event) {
@@ -375,16 +382,23 @@ class WiFiNetworkLink final : public NetworkLinkBase {
             break;
           case ARDUINO_EVENT_WIFI_STA_GOT_IP:
             applyTxPower();
-            NETWORK_DEBUG_PRINTLN("WiFi connected: %s",
-                IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
+            NETWORK_DEBUG_PRINTLN("WiFi connected: %s (AP %s, ch %d, %d dBm)",
+                IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str(),
+                WiFi.BSSIDstr().c_str(), (int)WiFi.channel(), (int)WiFi.RSSI());
             noteConnected(millis());
             _reconnect_backoff_attempt = 0;
+            _prompt_reconnect_pending.store(false, std::memory_order_relaxed);
+            _prompt_reconnect_used.store(false, std::memory_order_relaxed);
             break;
           case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
             noteDisconnected(millis(), info.wifi_sta_disconnected.reason);
             Ipv6Preference::noteLinkChange();
             NETWORK_DEBUG_PRINTLN("WiFi disconnected: reason %d",
                                   info.wifi_sta_disconnected.reason);
+            if (MQTTConnectionPolicy::wifiPromptReconnectWanted(info.wifi_sta_disconnected.reason) &&
+                !_prompt_reconnect_used.exchange(true, std::memory_order_relaxed)) {
+              _prompt_reconnect_pending.store(true, std::memory_order_relaxed);
+            }
             break;
           default:
             break;
@@ -421,7 +435,23 @@ class WiFiNetworkLink final : public NetworkLinkBase {
       }
     }
 
-    if ((uint32_t)(now_ms - _last_status_check) <= 10000) {
+    // The WiFi stack does not retry after this disconnect reason, so do it here, once per outage.
+    if (_prompt_reconnect_pending.load(std::memory_order_relaxed) &&
+        (uint32_t)(now_ms - _last_disconnect_time.load(std::memory_order_relaxed)) >=
+            MQTTConnectionPolicy::kWifiPromptReconnectDelayMs) {
+      _prompt_reconnect_pending.store(false, std::memory_order_relaxed);
+      if (!connected && _ssid[0] != '\0' && WiFi.getAutoReconnect()) {
+        NETWORK_DEBUG_PRINTLN("WiFi reconnecting: reason %d is not retried by the WiFi stack",
+                              (int)_last_disconnect_reason.load(std::memory_order_relaxed));
+        _last_reconnect_attempt = now_ms;
+        WiFi.disconnect();
+        WiFi.begin(_ssid, _password);
+      }
+    }
+
+    // Report the up edge at once: a poll-delayed one lands mid slot startup and stalls the next slot.
+    const bool up_edge = connected && !_last_connected;
+    if (!up_edge && (uint32_t)(now_ms - _last_status_check) <= 10000) {
       if (connected && outage().down) noteConnected(now_ms);
       return NetworkTransition::None;
     }
