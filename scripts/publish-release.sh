@@ -17,6 +17,9 @@
 #     build-repeater-mqtt-firmwares    v1.17.1 dmc-repeater-mqtt-v1.17.1    "DMC Repeater MQTT Firmware v1.17.1"
 #   GITHUB_TOKEN=... bash scripts/publish-release.sh \
 #     build-room-server-mqtt-firmwares v1.17.1 dmc-room-server-mqtt-v1.17.1 "DMC Roomserver Firmware v1.17.1"
+#   # dmc-observer-dev (Wi-Fi companion + MQTT observer):
+#   GITHUB_TOKEN=... bash scripts/publish-release.sh \
+#     build-companion-observer-firmwares v1.18.0 dmc-companion-observer-v1.18.0 "DMC Companion Observer Firmware v1.18.0"
 #   # dmc-dev:
 #   GITHUB_TOKEN=... bash scripts/publish-release.sh \
 #     build-dmc-repeater-firmwares     v1.17.1 dmc-repeater-v1.17.1         "DMC Repeater Firmware v1.17.1"

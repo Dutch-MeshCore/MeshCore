@@ -23,6 +23,7 @@ Commands:
   build-room-server-firmwares: Build all chat room server firmwares for all build targets.
   build-repeater-mqtt-firmwares: Build all MQTT repeater observer firmwares for all build targets.
   build-room-server-mqtt-firmwares: Build all MQTT room server observer firmwares for all build targets.
+  build-companion-observer-firmwares: Build all Wi-Fi companion + MQTT observer firmwares (*_companion_observer_wifi).
 
 Examples:
 Build firmware for the "RAK_4631_repeater" device target
@@ -64,7 +65,9 @@ EOF
 
 # get a list of pio env names that start with "env:"
 get_pio_envs() {
-  pio project config | grep 'env:' | sed 's/env://'
+  # Section headers only: an unanchored match also hits "extends = env:X" lines,
+  # which listed (and built) every extended env twice.
+  pio project config | grep '^env:' | sed 's/env://'
 }
 
 # Catch cries for help before doing anything else.
@@ -394,6 +397,11 @@ build_room_server_mqtt_firmwares() {
   build_all_firmwares_by_suffix "_room_server_observer_mqtt"
 }
 
+build_companion_observer_firmwares() {
+  # build all Wi-Fi companion radio + MQTT observer firmwares
+  build_all_firmwares_by_suffix "_companion_observer_wifi"
+}
+
 build_kiss_modem_firmwares() {
 
 #  # build specific kiss radio firmwares
@@ -447,6 +455,8 @@ elif [[ $1 == "build-repeater-mqtt-firmwares" ]]; then
   build_repeater_mqtt_firmwares
 elif [[ $1 == "build-room-server-mqtt-firmwares" ]]; then
   build_room_server_mqtt_firmwares
+elif [[ $1 == "build-companion-observer-firmwares" ]]; then
+  build_companion_observer_firmwares
 elif [[ $1 == "build-kiss-radio-firmwares" ]]; then
   build_kiss_modem_firmwares
 elif [[ $1 == "get-companion-firmwares-to-build" ]]; then
