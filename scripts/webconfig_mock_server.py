@@ -124,7 +124,7 @@ def default_config(setup_mode):
             "interval": 5, "timezone": "MST7MDT,M3.2.0,M11.1.0", "timezone_offset": -7,
             "ntp": "pool.ntp.org", "owner": "", "email": "", "snmp": False,
             "snmp_community": "public",
-            "neighbors": False, "neighbors_interval": 24,
+            "neighbors": "auto", "neighbors_interval": 24,
             "slots": [_slot() for _ in range(6)],
         },
         # Settings the CLI reaches but no portal form does, so they are absent
@@ -147,7 +147,7 @@ def default_config(setup_mode):
 def _slot():
     return {"preset": "none", "server": "", "port": 8883, "username": "",
             "password": "", "token": "", "topic": "", "audience": "",
-            "filter": "all", "iata": ""}
+            "filter": "all", "iata": "", "neighbors": "auto"}
 
 
 class State:
@@ -348,6 +348,12 @@ def apply_set(cfg, key, val):
     if m:
         return apply_slot_set(cfg, int(m.group(1)) - 1, m.group(2), val)
 
+    if key == "mqtt.neighbors":
+        if val not in ("auto", "on", "off"):
+            return False, "Error: use auto, on, or off"
+        cfg["mqtt"]["neighbors"] = val
+        return True, "OK"
+
     if key in BOOL_KEYS:
         sec, f = BOOL_KEYS[key]
         cfg[sec][f] = (val == "on")
@@ -509,6 +515,11 @@ def apply_slot_set(cfg, idx, field, val):
             return False, "Error: IATA code must be exactly 3 letters/digits (e.g. DEN)"
         slot["iata"] = val.upper()
         return True, "OK - slot %d IATA: %s" % (idx + 1, slot["iata"])
+    if field == "neighbors":
+        if val not in ("auto", "on", "off"):
+            return False, "Error: use auto, on, or off"
+        slot["neighbors"] = val
+        return True, "OK - slot %d neighbors: %s" % (idx + 1, val)
     if field == "filter":
         canonical = canonical_packet_filter(val)
         if canonical is None:

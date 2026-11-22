@@ -110,6 +110,9 @@ that slot, see [Per-slot region codes](#per-slot-region-codes)).
 | `marwoj` | `mqtts://mqtt.marwoj.net:8883` | user/pass (built in) | |
 | `sacmesh` | `wss://mqtt.sacmesh.org:443/` | JWT | |
 | `upstatemesh` | `wss://mqtt.upst8me.sh:443/mqtt` | JWT | |
+| `comchan` | `wss://obs.comchan.net:443/` | JWT | |
+| `virginiamesh` | `wss://mqtt.virginiamesh.com:8883` | none | |
+| `meshcore-analyzer-eu` | `wss://mqtt.meshcore-analyzer.eu:443` | JWT | |
 | `custom` | your broker | user/pass, or JWT when `mqttN.audience` is set | see [Custom Brokers](#custom-brokers) |
 | `none` | slot disabled | | |
 
@@ -153,6 +156,7 @@ Commands work over serial and over a remote admin login unless marked *serial on
 | `get/set mqttN.iata <code>` | Region code for this slot's topics; bare `set` clears it back to `mqtt.iata` |
 | `get/set mqttN.filter <all\|none\|list>` | Packet types sent to this slot |
 | `get/set mqttN.extras <none\|filter\|config\|all>` | Which DMC extension topics this slot receives |
+| `get/set mqttN.neighbors auto\|on\|off` | Neighbor snapshots for this slot; `auto` follows `mqtt.neighbors` (neighbors builds) |
 | `get mqttN.diag` | Last connection error and timing for the slot |
 
 Server and port apply only to `custom` slots. The username and password apply to
@@ -319,11 +323,13 @@ set mqtt2.extras all
 | `get/set mqtt.tx on\|off\|advert` | Publish transmitted packets; `advert` sends only this node's own adverts | advert |
 | `get/set mqtt.advert.verify on\|off` | Drop received adverts with bad signatures (counted as `badsig=` in `mqtt.stats`) | off |
 | `get/set mqtt.interval <1-60>` | Status interval, minutes | 5 |
-| `get/set mqtt.neighbors on\|off` | Periodic neighbors publish (neighbors builds) | off |
+| `get/set mqtt.neighbors auto\|on\|off` | Periodic neighbors publish (neighbors builds); `auto` only for presets that ask for it | auto |
 | `get/set mqtt.neighbors.interval <12-336>` | Neighbors interval, hours | 24 |
 | `get/set mqtt.config on\|off` | Publish the node config to the `config` topic | off |
+| `get/set mqtt.breaker.interval <10-30>` | Minutes between retries once a slot stops reconnecting | 30 |
+| `get/set mqtt.selfheal on\|off` | Reboot when MQTT is stuck in a state only a reboot clears; `get` shows the last cause and count | off |
 | `get/set mqtt.ntp <host\|none>` | Primary NTP server; `set` syncs once to test it | `pool.ntp.org` |
-| `get mqtt.ntp.diag` | Probe every NTP server without changing the clock | |
+| `get mqtt.ntp.diag` | Probe every NTP server without changing the clock; returns immediately and reports the last completed probe | |
 | `get/set mqtt.owner <64 hex>` | Owner public key for JWT (`get` is serial only) | |
 | `get/set mqtt.email <email>` | Owner email for JWT (`get` is serial only) | |
 | `get mqtt.presets [start]` | List presets, paged; continue from `next:<idx>` | |
@@ -374,7 +380,7 @@ Observer builds update themselves from the release manifest on ota.dutchmeshcore
 
 | Command | Purpose |
 |---------|---------|
-| `ota check` | Report whether a newer build exists. Does not flash |
+| `ota check` | Start a background check or read its cached result and age. Does not flash |
 | `ota update` | Download and flash the newer build, then reboot (about 30 s offline) |
 | `ota branch` | Show the selected channel, the channel this build came from, and the manifest URL |
 | `ota branch prod` | Follow production (alias `stable`) |
@@ -388,11 +394,20 @@ Observer builds update themselves from the release manifest on ota.dutchmeshcore
 
 ```bash
 ota branch beta
-ota check     # update available: v1.18.0.3 (...) -> v1.18.0.7 (...) (channel switch)
+ota check     # check started; read again in a few seconds
+ota check     # [2s ago] update available: v1.18.0.3 (...) -> v1.18.0.7 (...) (channel switch)
 ota update
 ```
 
-`ota check` replies:
+`ota check` returns immediately. The first read starts a short-lived background task;
+read again in a few seconds for the result, prefixed with its age. Reads reuse the
+cache for 60 seconds, then return the cached result while starting one refresh.
+Errors are cached too. Changing channels requires a result for that channel.
+The bridge stays up, and a check does not defer MQTT self-heal. `ota update`
+refuses while a check runs; retry after it finishes.
+Checks are refused while an accepted update is pending or executing.
+
+Cached `ota check` replies include:
 
 - `up to date: <version>`
 - `update available: <current> -> <new> (<n> behind | new base | channel switch)`
@@ -466,9 +481,12 @@ restart. See [MQTT_SNMP.md](MQTT_SNMP.md).
 
 | Command | Shows |
 |---------|-------|
-| `get mqtt.status` | Each slot's state; with neighbors on, `nbr: <next>/<last>` |
+| `get mqtt.status` | Each slot's state; while periodic neighbors run, `nbr: <next>/<last>` |
 | `get mqttN.diag` | Last error for slot N (TLS, socket, clock) and its filter |
 | `get mqtt.stats` | Heap, queue depth, outbox, drops, `filt=`, `badsig=` |
+| `get mqtt.stacks` | Free stack bytes per task: `b=` bridge, `l=` loop, `a=` async_tcp, `mN=` slot N client task |
+| `get crash` | Last panic read from the flash core dump at boot: task, `pc`, `exc` (EXCCAUSE), `va` (EXCVADDR), ELF `sha` prefix, up to 8 backtrace PCs (`!` = corrupt backtrace); `none` if there was none |
+| `clear crash` | Erase the flash core dump and forget the record |
 | `get mqtt.config.valid` | `valid` when the saved MQTT settings pass validation |
 | `memory` | Heap, internal RAM, largest free block, PSRAM |
 | `tls.bundletest <host[:port]>` | Test a TLS handshake against the built-in certificate bundle |
@@ -486,7 +504,17 @@ restart. See [MQTT_SNMP.md](MQTT_SNMP.md).
 `{PUBLIC_KEY}` is 64 hex characters. MeshRank uses `meshrank/uplink/{token}/{PUBLIC_KEY}/<type>`.
 
 **Neighbors** publish after `discover.scopes`, or every `mqtt.neighbors.interval` hours
-when `mqtt.neighbors` is on. A periodic run first refreshes the neighbor table for 60 s
+when periodic neighbors run. Which slots get the periodic snapshot:
+
+- `mqttN.neighbors on` or `off` decides for that slot.
+- `mqttN.neighbors auto` (the default) follows the node: `mqtt.neighbors on` sends to
+  the slot; `mqtt.neighbors auto` (the default) sends only if the slot's preset asks
+  for neighbor data (`cascadiamesh`, `chimesh`, `comchan`, `meshat.se`, `meshmapper`,
+  `rflab`, `virginiamesh`).
+- `mqtt.neighbors off` stops periodic snapshots on every slot.
+
+The periodic cycle runs only while at least one slot would receive it. A manual
+`discover.scopes` goes to every connected slot not set `off`. A periodic run first refreshes the neighbor table for 60 s
 (like `discover.neighbors`), then queries each neighbor's scopes. A manual
 `discover.scopes` during a refresh waits for it and says so:
 `OK - scopes queued (47s discovery remaining)`.
@@ -537,6 +565,19 @@ All timestamps are UTC with an explicit `+00:00` offset.
 
 `stats` and its fields are omitted when no value is available. Packet counts are totals
 since boot.
+
+After a panic, every status message for the rest of that boot also carries the record
+`get crash` prints, read from the flash core dump:
+
+```json
+"crash": {"task": "loopTask", "pc": "400d1a2b", "exc": 28, "va": "00000010",
+          "sha": "1a2b3c4d", "bt": "400d1a2b 400d5678 40089abc"}
+```
+
+Addresses are hex without `0x`; decode them against the ELF whose SHA-256 starts with
+`sha`. A trailing `!` in `bt` marks a corrupt backtrace. The field is dropped if it would
+overflow the status buffer. The flash dump is erased once a status carrying it has been
+published (or on `clear crash`), so it survives boots where MQTT never connects.
 
 ### Packet
 
@@ -611,9 +652,26 @@ since boot.
 ## Behavior
 
 **Connections.** Each slot reconnects with exponential backoff, then drops to a slow
-periodic retry. Packets queue while a slot is down. When the network route changes
+periodic retry (`mqtt.breaker.interval`, default 30 min). Packets queue while a slot is down. When the network route changes
 (Ethernet to WiFi or back), every slot disconnects cleanly and retries at once on the new
-route. Each medium keeps its own DHCP DNS servers.
+route. Each medium keeps its own DHCP DNS servers. When Wi-Fi or Ethernet drops and
+comes back, every slot retries at once; a session the outage cut does not count against
+the broker, unless the link keeps dropping within 30 s of coming up (40 s when the slot is
+still marked connected at the polled edge).
+
+**Self-heal.** With `mqtt.selfheal on`, the node alerts and reboots 1 min later when a
+bridge stop never completes (10 min), an MQTT client cannot be stopped (30 min), or every
+slot is down for 2 h while an NTP reply in the last hour shows the internet is reachable.
+The all-slots-down hold adds up to 30 min of per-node random delay, chosen once at boot.
+Slots refused by their broker do not count. It waits for 30 min of uptime, doubles the
+hold per consecutive self-heal reboot (up to 8x), and only alerts after 5 in a row.
+All-slots-down gets one reboot per outage, and only if no self-heal reboot of any cause
+has occurred since the last healthy period; after that it only alerts. Ten healthy
+minutes resets the count and re-arms all-slots-down, either with a connected slot or
+with the bridge deliberately off and clean. Until then, the status payload carries `selfheal`
+(`stop_unproven`, `client_quarantined` or `all_slots_down`) and `selfheal_n` (count) next
+to `reset_reason`. While no slot is connected, the bridge
+probes NTP about every 20 min without changing the clock.
 
 **Ethernet (ThinkNode M7).** The observer uses Ethernet when it has a DHCP lease at boot,
 otherwise WiFi, and switches at runtime. Without a cable, boot waits about 1 s for
@@ -726,6 +784,16 @@ get mqtt1.filter           # none sends no packets
 ```
 
 **JWT brokers reject the login:** check the clock with `get mqtt.ntp.diag`.
+
+**Slots connect, then drop a few seconds later and the queue stays full:** usually a weak WiFi
+uplink. The small handshake frames get through, but full-size publishes do not.
+
+```bash
+get link.status            # signal below about -70 dBm is marginal
+set wifi.txpower 20        # raise the TX power cap; `default` reverts
+```
+
+Most builds, the Station G3 included, start at the 11 dBm build default (`MQTT_WIFI_TX_POWER`).
 
 ## Fault Alerts
 

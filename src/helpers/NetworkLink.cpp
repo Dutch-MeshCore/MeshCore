@@ -348,6 +348,9 @@ class WiFiNetworkLink final : public NetworkLinkBase {
     // Core 3.x keeps this as a flag the station applies when it starts.
     WiFi.enableIPv6(Ipv6Preference::enabled());
 #endif
+    // Scan every channel and join the strongest AP; the default takes the first one found.
+    WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+    WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
     // Before WiFi.begin() so association and the handshake honor the cap too.
     applyTxPower();
 
@@ -375,8 +378,9 @@ class WiFiNetworkLink final : public NetworkLinkBase {
             break;
           case ARDUINO_EVENT_WIFI_STA_GOT_IP:
             applyTxPower();
-            NETWORK_DEBUG_PRINTLN("WiFi connected: %s",
-                IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str());
+            NETWORK_DEBUG_PRINTLN("WiFi connected: %s (AP %s, ch %d, %d dBm)",
+                IPAddress(info.got_ip.ip_info.ip.addr).toString().c_str(),
+                WiFi.BSSIDstr().c_str(), (int)WiFi.channel(), (int)WiFi.RSSI());
             noteConnected(millis());
             _reconnect_backoff_attempt = 0;
             break;
@@ -421,7 +425,9 @@ class WiFiNetworkLink final : public NetworkLinkBase {
       }
     }
 
-    if ((uint32_t)(now_ms - _last_status_check) <= 10000) {
+    // Report the up edge at once: a poll-delayed one lands mid slot startup and stalls the next slot.
+    const bool up_edge = connected && !_last_connected;
+    if (!up_edge && (uint32_t)(now_ms - _last_status_check) <= 10000) {
       if (connected && outage().down) noteConnected(now_ms);
       return NetworkTransition::None;
     }
