@@ -182,8 +182,12 @@ build_firmware() {
   # above carries the same version + build number but no variant/channel tag: the
   # env name already contains "observer", and the web flasher keys off that
   # existing pattern.
+  # The Wi-Fi companion + MQTT observer is tagged -comp-obs
+  # (v1.18.0-dutchmeshcore.nl-comp-obs-abcdef), so it is never mistaken for a
+  # repeater/room-server observer build.
   VARIANT_TAG=""
   case "$1" in
+    *_companion_observer_*) VARIANT_TAG="-comp-obs" ;;
     *observer*) VARIANT_TAG="${VARIANT_TAG}-observer" ;;
   esac
   case "$1" in
