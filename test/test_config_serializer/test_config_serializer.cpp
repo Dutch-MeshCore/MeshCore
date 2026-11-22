@@ -299,6 +299,23 @@ TEST(ConfigSerializer, LoadSerial_RejectsLeadingDigitKey) {
     EXPECT_FALSE(data.loadSerial(s));
 }
 
+// DMC: all-digit index keys are how the companion filter stores its rule lists
+// (/cfilter.json: sender:{0:{...},1:{...}}). They must load; mixed keys such as
+// "1slot" (above) and "12a" stay rejected.
+TEST(ConfigSerializer, LoadSerial_AcceptsAllDigitIndexKeys) {
+    MockInputStream s("{list:{0:{p:\"a\"},12:{p:\"b\"}},age:3}");
+    TestStruct data;
+    data.age = 0;
+    EXPECT_TRUE(data.loadSerial(s));
+    EXPECT_EQ(3, data.age);
+}
+
+TEST(ConfigSerializer, LoadSerial_RejectsDigitKeyWithLetters) {
+    MockInputStream s("{list:{12a:1}}");
+    TestStruct data;
+    EXPECT_FALSE(data.loadSerial(s));
+}
+
 TEST(ConfigSerializer, LoadSerial_AcceptsEmptyObject) {
     MockInputStream s("{}");
     TestStruct data;
