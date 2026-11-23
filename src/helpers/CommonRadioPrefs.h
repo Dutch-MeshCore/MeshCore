@@ -3,14 +3,9 @@
 #include "KeyValueStore.h"
 
 class CommonRadioPrefs : public ConfigSerializer, public KeyValueStore {
-  bool _is_dirty = false;
 protected:
   CommonRadioPrefs() { }
 public:
-  void markDirty() { _is_dirty = true; }
-  void clearDirty() override { _is_dirty = false; }
-  bool isDirty() const override { return _is_dirty; }
-
   virtual float getFreq() const = 0;
   virtual void setFreq(float f) = 0;
 

@@ -5,8 +5,7 @@
 #include <helpers/CrashReport.h>
 
 #ifdef DISPLAY_CLASS
-  #include "UITask.h"
-  static UITask ui_task(board, display);
+  // ui_task is created by the variant (target.cpp), as upstream does.
   static bool display_ready = false;
 #endif
 
@@ -120,7 +119,7 @@ void setup() {
 #ifdef WITH_MQTT_BRIDGE
     ui_task.setObserverPrefs(the_mesh.getObserverPrefs());
 #endif
-    ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION);
+    ui_task.begin(the_mesh.getNodePrefs(), FIRMWARE_BUILD_DATE, FIRMWARE_VERSION, "< Repeater >");
 #ifdef DISPLAY_ACTIVITY_DASHBOARD
     ui_task.setActivityWindow(the_mesh.getActivityWindow());
 #endif
