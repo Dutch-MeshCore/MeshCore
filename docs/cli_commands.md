@@ -145,6 +145,18 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 **Serial Only:** Yes
 
+**Note:** Output format: `{"battery_mv":<mV>,"uptime_secs":<secs>,"errors":<flags>,"queue_len":<count>}`
+
+**Note:** `errors` is a bitmask shown as "Debug flags" in the app's repeater status.
+
+| Value | Flag | Meaning |
+|-------|------|---------|
+| 1 | `ERR_EVENT_FULL` | A packet failed to send because the memory pool was full. |
+| 2 | `ERR_EVENT_CAD_TIMEOUT` | After waiting 4 seconds for a gap, a packet was transmitted into a busy network. |
+| 4 | `ERR_EVENT_STARTRX_TIMEOUT` | The radio was out of receive mode for more than 8 seconds. |
+
+Flags stay set until the node reboots or `clear stats` is run.
+
 ---
 
 ### Radio Stats - Noise floor, Last RSSI/SNR, Airtime, Receive errors
@@ -388,6 +400,10 @@ Find more information in [companion_snmp_ota_reference.md](companion_snmp_ota_re
 
 **Note:** Requires reboot to apply
 
+**Notes:** These settings control the setup of the radio parameters.
+Refer to the node's manual for the correct settings to use.
+**Setting a value too high or too low may violate the laws in your country.**
+
 ---
 
 #### View or change this node's transmit power
@@ -402,7 +418,9 @@ Find more information in [companion_snmp_ota_reference.md](companion_snmp_ota_re
 
 **Default:** Varies by board
 
-**Notes:** This setting only controls the power level of the LoRa chip. Some nodes have an additional power amplifier stage which increases the total output. Refer to the node's manual for the correct setting to use. **Setting a value too high may violate the laws in your country.**
+**Notes:** This setting only controls the power level of the LoRa chip. Some nodes have an additional power amplifier stage which increases the total output.
+Refer to the node's manual for the correct setting to use.
+**Setting a value too high may violate the laws in your country.**
 
 ---
 
@@ -416,6 +434,10 @@ Find more information in [companion_snmp_ota_reference.md](companion_snmp_ota_re
 - `sf`: Spreading factor (5-12)
 - `cr`: Coding rate (5-8)
 - `timeout_mins`: Duration in minutes (must be > 0)
+
+**Notes:** These settings control the setup of the radio parameters.
+Refer to the node's manual for the correct settings to use.
+**Setting a value too high or too low may violate the laws in your country.**
 
 **Note:** This is not saved to preferences and will clear on reboot
 
@@ -867,6 +889,9 @@ locally-relevant types generous if you rely on region gating as the first-line
 congestion response. Region gating is off by default, so enabling it layers on
 top of an existing filter configuration without disturbing it. Directed
 (non-flood) traffic is never region-gated.
+
+**Notes:** Refer to the node's manual for the correct settings to use.
+**Setting a value too high may violate the laws in your country.**
 
 ---
 
