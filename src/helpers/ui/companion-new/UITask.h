@@ -4,12 +4,10 @@
 #include <helpers/ui/DisplayDriver.h>
 #include <helpers/ui/UIScreen.h>
 #include <helpers/SensorManager.h>
+#include <helpers/BaseChatMesh.h>
 #include <helpers/MultiSerialInterface.h>
 #include <Arduino.h>
 #include <helpers/sensors/LPPDataHelpers.h>
-
-#include "ScrollingStatusBar.h"
-
 
 #ifndef LED_STATE_ON
   #define LED_STATE_ON 1
@@ -22,13 +20,44 @@
   #include <helpers/ui/GenericVibration.h>
 #endif
 
-#include "../AbstractUITask.h"
-#include "../NodePrefs.h"
+#include <helpers/ui/AbstractUITask.h>
+#include <helpers/CompanionNodePrefs.h>
+#ifdef WITH_MQTT_BRIDGE
+  #include <helpers/CompanionObserver.h>   // companion observer: "MQTT n/m up" on the home screen
+#endif
+
+#ifdef UI_NO_DISCOVER_SCREEN
+  #error "UI_NO_DISCOVER_SCREEN is obsolete - use -D UI_DISCOVER_SCREEN=0 instead"
+#endif
+
+#ifndef UI_DISCOVER_SCREEN
+  #define UI_DISCOVER_SCREEN  1
+#endif
+
+#if UI_DISCOVER_SCREEN
+  #ifdef UI_RECENT_LIST_SIZE
+    #define DISCOVERED_NODES_TABLE_SIZE UI_RECENT_LIST_SIZE
+  #else
+    #define DISCOVERED_NODES_TABLE_SIZE 4
+  #endif
+
+struct DiscoveredNode {
+  float snr_in;
+  float snr_out;
+  uint8_t pubkey_prefix[9];
+  uint8_t type;
+  char name[32];
+};
+#endif
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
   SensorManager* _sensors;
-  ScrollingStatusBar _statusBar;
+  BaseChatMesh* the_mesh;
+  uint32_t _ble_pin;
+#ifdef WITH_MQTT_BRIDGE
+  const CompanionObserver* _observer = NULL;
+#endif
 #ifdef PIN_BUZZER
   genericBuzzer buzzer;
 #endif
@@ -41,8 +70,8 @@ class UITask : public AbstractUITask {
   unsigned long _alert_expiry;
   int _msgcount;
   unsigned long ui_started_at, next_batt_chck;
-  int next_backlight_btn_check = 0;
-  uint16_t _cached_batt_mv;
+  unsigned long next_backlight_btn_check = 0;
+  unsigned long _backlight_off = 0;
 #ifdef PIN_STATUS_LED
   int led_state = 0;
   int next_led_change = 0;
@@ -55,9 +84,8 @@ class UITask : public AbstractUITask {
 
   UIScreen* splash;
   UIScreen* home;
-  // UIScreen* msg_preview;
+  UIScreen* msg_preview;
   UIScreen* curr;
-
 
   void userLedHandler();
 
@@ -71,20 +99,27 @@ class UITask : public AbstractUITask {
 
 public:
 
-  UITask(mesh::MainBoard* board, MultiSerialInterface* serial) : AbstractUITask(board, serial), _display(NULL), _sensors(NULL) {
+  UITask(mesh::MainBoard* board, DisplayDriver* display = NULL) : AbstractUITask(board), _display(display), _sensors(NULL) {
     next_batt_chck = _next_refresh = 0;
-    _cached_batt_mv = 0;
     ui_started_at = 0;
     curr = NULL;
   }
-  void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
+  void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs, MultiSerialInterface* serial,
+             BaseChatMesh* mesh, uint32_t ble_pin, const char* ver, const char* build_date);
 
   void gotoHomeScreen() { setCurrScreen(home); }
   void showAlert(const char* text, int duration_millis);
   int  getMsgCount() const { return _msgcount; }
-  uint16_t getCachedBattMV() const { return _cached_batt_mv; }
   bool hasDisplay() const { return _display != NULL; }
   bool isButtonPressed() const;
+
+  BaseChatMesh* getMesh() const { return the_mesh; }
+  uint32_t getBLEPin() const  { return _ble_pin; }
+#ifdef WITH_MQTT_BRIDGE
+  // The mesh is held as BaseChatMesh*, so the companion observer is handed in separately.
+  void setObserver(const CompanionObserver* observer) { _observer = observer; }
+  const CompanionObserver* getObserver() const { return _observer; }
+#endif
 
   bool isBuzzerQuiet() { 
 #ifdef PIN_BUZZER
@@ -97,12 +132,14 @@ public:
   void toggleBuzzer();
   bool getGPSState();
   void toggleGPS();
+  void triggerGPS();
 
-  // MyMesh::Listener
+  // MeshEventListener
   void onMessageRecv(mesh::Packet *pkt, const ContactInfo &from, uint8_t txt_type, uint32_t sender_timestamp, const char* text) override;
   void onChannelMessageRecv(mesh::Packet *pkt, ChannelDetails& channel_details, const char* text) override;
   void onQueueSizeChanged(int offline_queue_size) override;
   void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) override;
+  void onControlDataRecv(const mesh::Packet* pkt) override;
 
   // from AbstractUITask
   void notify(UIEventType t = UIEventType::none) override;

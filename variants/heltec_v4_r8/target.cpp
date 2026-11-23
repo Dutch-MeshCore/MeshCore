@@ -40,6 +40,7 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
   #endif
   MomentaryButton user_btn(PIN_USER_BTN, USER_BTN_LONG_PRESS_MILLIS, true, false,
                            USER_BTN_MULTICLICK);
+  UITask ui_task(&board, &display);
 #endif
 
 bool radio_init() {

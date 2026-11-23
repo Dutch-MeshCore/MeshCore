@@ -5,7 +5,7 @@
 #include <string>
 
 #include "helpers/GpsDefault.h"
-#include "../../examples/companion_radio/NodePrefs.h"
+#include "../../src/helpers/CompanionNodePrefs.h"   // upstream moved examples/companion_radio/NodePrefs.h here
 
 // CommonRadioPrefs::setByKey/getByKey come from test/mocks/CommonRadioPrefs.cpp on this branch.
 

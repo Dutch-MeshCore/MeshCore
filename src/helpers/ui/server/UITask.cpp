@@ -1,4 +1,5 @@
 #include "UITask.h"
+#include "target.h"
 #include <Arduino.h>
 #include <helpers/CommonCLI.h>
 
@@ -62,6 +63,8 @@ unsigned long UITask::displayTimeoutMillis() const {
 }
 #define BOOT_SCREEN_MILLIS   4000   // 4 seconds
 
+#define POWEROFF_DELAY 3000
+
 // 'meshcore', 128x13px
 static const uint8_t meshcore_logo [] PROGMEM = {
     0x3c, 0x01, 0xe3, 0xff, 0xc7, 0xff, 0x8f, 0x03, 0x87, 0xfe, 0x1f, 0xfe, 0x1f, 0xfe, 0x1f, 0xfe, 
@@ -79,10 +82,11 @@ static const uint8_t meshcore_logo [] PROGMEM = {
     0xe3, 0xe3, 0x8f, 0xff, 0x1f, 0xfc, 0x3c, 0x0e, 0x1f, 0xf8, 0xff, 0xf8, 0x70, 0x3c, 0x7f, 0xf8, 
 };
 
-void UITask::begin(NodePrefs* node_prefs, const char* build_date, const char* firmware_version) {
+void UITask::begin(NodePrefs* node_prefs, const char* build_date, const char* firmware_version, const char* role_lbl) {
   _prevBtnState = HIGH;
   _timeout_seen = displayTimeoutMillis();
   _auto_off = millis() + displayTimeoutMillis();
+  _started_at = millis();
   _node_prefs = node_prefs;
 #ifdef DISPLAY_ACTIVITY_DASHBOARD
   ObserverDashboard::applyDarkPalette();   // retunes UIColor for this target only
@@ -96,25 +100,31 @@ void UITask::begin(NodePrefs* node_prefs, const char* build_date, const char* fi
   _frame_valid = false;
 #endif
 
+#if defined(PIN_USER_BTN) && defined(DISPLAY_CLASS)
+  user_btn.begin();
+#endif
+
   // strip off dash and commit hash by changing dash to null terminator
   // e.g: v1.2.3-abcdef -> v1.2.3
   char *version = strdup(firmware_version);
   char *dash = strchr(version, '-');
-  if(dash){
+  if (dash){
     *dash = 0;
   }
 
   // v1.2.3 (1 Jan 2025)
   snprintf(_version_info, sizeof(_version_info), "%s (%s)", version, build_date);
   free(version);
+
+  _role_label = role_lbl;
 }
 
-void UITask::renderCurrScreen() {
+long UITask::renderCurrScreen() {
   char tmp[80];
 #ifdef DISPLAY_ACTIVITY_DASHBOARD
   _rows_valid = false;
 #endif
-  if (millis() < BOOT_SCREEN_MILLIS) { // boot screen
+  if (millis() < _started_at + BOOT_SCREEN_MILLIS) { // boot screen
     // meshcore logo
     _display->setColor(UIColor::corp_blue);
     int logoWidth = 128;
@@ -124,21 +134,31 @@ void UITask::renderCurrScreen() {
     const char* website = "https://meshcore.io";
     _display->setColor(UIColor::primary_txt);
     _display->setTextSize(1);
-    uint16_t websiteWidth = _display->getTextWidth(website);
-    _display->setCursor((_display->width() - websiteWidth) / 2, 22);
-    _display->print(website);
+    _display->drawTextCentered(_display->width() / 2, 22, website);
 
     // version info
     _display->setTextSize(1);
-    uint16_t versionWidth = _display->getTextWidth(_version_info);
-    _display->setCursor((_display->width() - versionWidth) / 2, 35);
-    _display->print(_version_info);
+    _display->drawTextCentered(_display->width() / 2, 35, _version_info);
 
     // node type
-    const char* node_type = "< Room Server >";
-    uint16_t typeWidth = _display->getTextWidth(node_type);
-    _display->setCursor((_display->width() - typeWidth) / 2, 48);
-    _display->print(node_type);
+    _display->drawTextCentered(_display->width() / 2, 48, _role_label);
+  } else if (_powering_off_at > 0) {
+    // meshcore logo
+    _display->setColor(UIColor::corp_blue);
+    int logoWidth = 128;
+    _display->drawXbm((_display->width() - logoWidth) / 2, 3, meshcore_logo, logoWidth, 13);
+
+    // meshcore website
+    const char* website = "https://meshcore.io";
+    _display->setColor(UIColor::primary_txt);
+    _display->setTextSize(1);
+    _display->drawTextCentered(_display->width()/ 2, 22, website);
+
+    // Powering off
+    const char* poweroff_string = "Turning OFF";
+    uint16_t poffWidth = _display->getTextWidth(poweroff_string);
+    _display->setCursor((_display->width() - poffWidth) / 2, 48);
+    _display->drawTextCentered(_display->width()/2, 48, poweroff_string);
   } else {  // home screen
 #ifdef WITH_WEBCONFIG
     if (WebConfigServer::isRebootPending()) {
@@ -151,7 +171,7 @@ void UITask::renderCurrScreen() {
       _display->setColor(UIColor::primary_txt);
       _display->setCursor(0, 30);
       _display->print("Rebooting...");
-      return;
+      return 1000;
     }
     char wc_ssid[33], wc_ip[16];
     if (WebConfigServer::getSetupInfo(wc_ssid, sizeof(wc_ssid), wc_ip, sizeof(wc_ip))) {
@@ -175,12 +195,12 @@ void UITask::renderCurrScreen() {
       _display->setColor(UIColor::warning_txt);
       _display->setCursor(6, 50);
       _display->print(wc_ip);
-      return;
+      return 1000;
     }
 #endif
 #ifdef DISPLAY_ACTIVITY_DASHBOARD
     renderDashboard();
-    return;
+    return 1000;
 #endif
     // node name
     _display->setCursor(0, 0);
@@ -209,6 +229,7 @@ void UITask::renderCurrScreen() {
     }
 #endif
   }
+  return 1000;   // 1 sec interval
 }
 
 #ifdef DISPLAY_REDRAW_ON_CHANGE
@@ -216,9 +237,13 @@ uint32_t UITask::getFrameSignature() {
   uint32_t signature = DisplayFrameSignature::INITIAL;
   char tmp[80];
 
-  if (millis() < BOOT_SCREEN_MILLIS) {
+  if (millis() < _started_at + BOOT_SCREEN_MILLIS) {
     signature = DisplayFrameSignature::append(signature, "boot");
     return DisplayFrameSignature::append(signature, _version_info);
+  }
+
+  if (_powering_off_at > 0) {
+    return DisplayFrameSignature::append(signature, "powering-off");
   }
 
 #ifdef WITH_WEBCONFIG
@@ -261,7 +286,7 @@ uint32_t UITask::getFrameSignature() {
 bool UITask::buildDashboardContext(ObserverDashboard::Context* ctx) {
   if (_node_prefs == NULL) return false;
   ctx->node_name = _node_prefs->node_name;
-  ctx->role_label = "ROOM SERVER";
+  ctx->role_label = "REPEATER";
   ctx->freq = _node_prefs->freq;
   ctx->sf = _node_prefs->sf;
   ctx->bw = _node_prefs->bw;
@@ -330,31 +355,29 @@ void UITask::toggleDisplay(const char* source) {
 #endif
 
 void UITask::loop() {
-#ifdef PIN_USER_BTN
-  if (millis() >= _next_read) {
-    int btnState = digitalRead(PIN_USER_BTN);
-    if (btnState != _prevBtnState) {
-      if (btnState == USER_BTN_PRESSED) {  // pressed?
+#if defined(PIN_USER_BTN) && defined(DISPLAY_CLASS)
+  int ev = user_btn.check();
+  if (ev == BUTTON_EVENT_CLICK) {
 #ifdef DISPLAY_TOUCH_TOGGLE
-        toggleDisplay("button");   // same action as tapping the panel
+    toggleDisplay("button");   // same action as tapping the panel
 #else
-        if (_display->isOn()) {
-          // TODO: any action ?
-        } else {
-          _display->turnOn();
+    if (_display->isOn()) {
+      // TODO: any action ?
+    } else {
+      _display->turnOn();
 #ifdef DISPLAY_REDRAW_ON_CHANGE
-          _frame_valid = false;
+      _frame_valid = false;
 #endif
 #ifdef DISPLAY_ACTIVITY_DASHBOARD
-          _rows_valid = false;
+      _rows_valid = false;
 #endif
-        }
-        _auto_off = millis() + displayTimeoutMillis();   // extend auto-off timer
-#endif
-      }
-      _prevBtnState = btnState;
     }
-    _next_read = millis() + 200;  // 5 reads per second
+    _auto_off = millis() + displayTimeoutMillis();   // extend auto-off timer
+#endif
+  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
+      _display->turnOn();
+      Serial.println("Powering Off");
+      _powering_off_at = millis() + POWEROFF_DELAY; 
   }
 #endif
 
@@ -427,6 +450,17 @@ void UITask::loop() {
 #ifdef DISPLAY_ACTIVITY_DASHBOARD
       _rows_valid = false;
 #endif
+    }
+  }
+
+  if (_powering_off_at > 0) { // power off timer armed
+#if defined(LED_PIN) && defined(LED_STATE_ON)
+    digitalWrite(LED_PIN, LED_STATE_ON); // switch on the led until poweroff
+    delay(1000);
+    digitalWrite(LED_PIN, !LED_STATE_ON); // off LED
+#endif
+    if (millis() > _powering_off_at) {
+      _board->powerOff();  // should not return
     }
   }
 }
