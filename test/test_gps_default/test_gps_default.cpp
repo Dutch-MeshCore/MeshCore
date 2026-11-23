@@ -5,7 +5,7 @@
 #include <string>
 
 #include "helpers/GpsDefault.h"
-#include "../../examples/companion_radio/NodePrefs.h"
+#include "../../src/helpers/CompanionNodePrefs.h"   // upstream moved examples/companion_radio/NodePrefs.h here
 
 // CommonRadioPrefs.cpp needs target.h, so it is not in the native build. These tests use no radio keys.
 bool CommonRadioPrefs::setByKey(const char*, const char*) { return false; }
