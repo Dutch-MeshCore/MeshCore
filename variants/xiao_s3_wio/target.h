@@ -9,6 +9,7 @@
 #include <helpers/sensors/EnvironmentSensorManager.h>
 #ifdef DISPLAY_CLASS
   #include <helpers/ui/SSD1306Display.h>
+  #include <helpers/ui/NullDisplayDriver.h>   // companion_radio_wifi builds use NullDisplayDriver
   #include <helpers/ui/MomentaryButton.h>
   #include <UITask.h>
 #endif
