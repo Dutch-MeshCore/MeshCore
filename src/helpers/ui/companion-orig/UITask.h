@@ -6,6 +6,10 @@
 #include <helpers/BaseChatMesh.h>
 #include <stddef.h>
 
+#ifndef LED_STATE_ON   // same default as companion-new/UITask.h; used by the status LED
+  #define LED_STATE_ON 1
+#endif
+
 #ifdef PIN_BUZZER
   #include <helpers/ui/buzzer.h>
 #endif
