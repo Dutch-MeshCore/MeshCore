@@ -186,12 +186,17 @@ jobs:
           python3 - "$RUNNER_TEMP/pio-config.json" <<'PY'
           import hashlib, json, os, re, sys
           pattern = re.compile(os.environ["PATTERN"], re.I)
+          # Boards DMC does not ship, whatever the firmware set. Kept here rather than
+          # in the variant files so upstream syncs stay conflict-free.
+          #   LilyGo_T3_STM32_*: 224 KB app flash; upstream's repeater already uses
+          #   94.7% and the DMC features push it 3.2 KB over (2026-11-23).
+          skip = re.compile(r"^LilyGo_T3_STM32_", re.I)
           rows = []
           for section, items in json.load(open(sys.argv[1])):
               if not section.startswith("env:"):
                   continue
               env = section[4:]
-              if not pattern.search(env):
+              if not pattern.search(env) or skip.search(env):
                   continue
               opts = dict(items)
               # Toolchain cache key: envs on the same platform + packages share it.
