@@ -119,16 +119,25 @@ DMC voegde `auto` toe en veranderde de standaard van 50% naar `auto`.
 Alleen op ESP32 observer-builds.
 
 - **Wifi**: `set wifi.ssid <ssid>`, `set wifi.pwd <pwd>`, `set wifi.powersave ...`,
-  `get wifi.status`
+  `set wifi.ipv6 <on|off>` (IPv6 met MQTT eerst via IPv6 en terugval op IPv4; standaard `on`),
+  `set wifi.txpower <2-20|default>` (limiet wifi-zendvermogen in dBm), `get wifi.status`
 - **MQTT-identiteit en -routing**: `set mqtt.iata <code>`, `set mqtt.email <email>`,
   `set mqtt.owner <64-hex>`, `set mqtt<N>.preset <naam>` / `set mqtt<N>.server <...>`,
+  `set mqtt<N>.iata <code>` (regiocode voor dat slot; leeg = `mqtt.iata`),
   `set mqtt.rx|tx <on|off|advert>`, `get mqtt.status`
 - **MQTT extra**: `set mqtt.config <on|off>` (publiceert niet-gevoelige node-config naar het
   `config`-topic, opgeslagen in `/mqtt.json`), `set mqtt.filter.interval <60-600>`,
-  `set mqtt.neighbors <on|off>` + `set mqtt.neighbors.interval <uren>` (alleen met PSRAM)
+  `set mqtt.neighbors <auto|on|off>` (standaard `auto`: alleen naar slots waarvan de preset
+  erom vraagt), `set mqtt<N>.neighbors <auto|on|off>` (per slot) en
+  `set mqtt.neighbors.interval <uren>` (alleen met PSRAM)
+- **Herverbinden en self-heal**: `set mqtt.breaker.interval <10-30>` (minuten tussen pogingen
+  zodra een slot niet meer herverbindt; standaard 30), `set mqtt.selfheal <on|off>` (herstart
+  als MQTT vastzit in een toestand die alleen een herstart oplost; standaard `off`)
+- **Diagnose**: `get crash` / `clear crash` (laatste crash uit de core dump in flash; het
+  volgende statusbericht draagt hem één keer mee), `get mqtt.stacks` (vrije stack per MQTT-taak)
 - **NTP**: `set mqtt.ntp <host|none>`, `get mqtt.ntp.diag`
 - **Netwerkverbinding**: `get link.status` (medium, verbinding, IP, signaal en uptime;
-  vervangt `get wifi.status`), `get link.diag` (waarom Ethernet of wifi is gekozen,
+  vervangt `get wifi.status`; toont ook het IPv6-adres als de node er een heeft), `get link.diag` (waarom Ethernet of wifi is gekozen,
   ThinkNode M7-Ethernet-builds), `get link.dns` (actieve DNS-resolvers en gateway)
 - **Advertcontrole**: `set mqtt.advert.verify <on|off>` / `get mqtt.advert.verify`
   (publiceer geen adverts waarvan de handtekening niet klopt; standaard `off`)
@@ -137,3 +146,11 @@ Alleen op ESP32 observer-builds.
 
 Gepubliceerde topics (suffixen op een gemeenschappelijk prefix): `status`, `packets`,
 `filter`, `neighbors`, `config`.
+
+### Companion Observer
+
+De [Companion Observer](releases.md#companion-observer) kent dezelfde wifi-, MQTT-, NTP-,
+netwerk- en diagnose-opdrachten, via de seriële USB-console, de opdrachtregel in de app en
+remote admin, plus het [companionfilter](#companion-filter). Hij weigert `ota ...` en
+`set mqtt.selfheal`; SNMP, storingsmeldingen, het webportaal en buurpublicatie zitten er niet
+in.
