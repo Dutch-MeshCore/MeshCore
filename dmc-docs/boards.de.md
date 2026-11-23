@@ -8,6 +8,9 @@ zeigt die observer-fähigen Boards im Detail.
 - **Repeater**: leitet Pakete multi-hop weiter; läuft auf fast jedem unterstützten Board.
 - **Observer/MQTT**: ein Repeater oder Room Server mit MQTT-Uplink. Erfordert ein
   ESP32-Board mit WiFi (siehe Tabelle unten).
+- **Companion Observer**: ein WiFi-Companion und MQTT-Observer in einem Image, auf Heltec V3,
+  Heltec V4 (auch dem Expansion Kit), Xiao S3 WIO und Waveshare S3 LR1121. Siehe
+  [Releases](releases.md#companion-observer).
 
 Alle Boards nutzen die globalen Funk-Standardwerte: `LORA_FREQ=869.618`, `LORA_BW=62.5`,
 `LORA_SF=8`.

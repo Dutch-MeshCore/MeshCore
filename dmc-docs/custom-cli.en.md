@@ -117,16 +117,25 @@ DMC added `auto` and changed the default from 50% to `auto`.
 ESP32 observer builds only.
 
 - **WiFi**: `set wifi.ssid <ssid>`, `set wifi.pwd <pwd>`, `set wifi.powersave ...`,
-  `get wifi.status`
+  `set wifi.ipv6 <on|off>` (IPv6 with IPv6-first MQTT and IPv4 fallback; default `on`),
+  `set wifi.txpower <2-20|default>` (WiFi TX power cap in dBm), `get wifi.status`
 - **MQTT identity and routing**: `set mqtt.iata <code>`, `set mqtt.email <email>`,
   `set mqtt.owner <64-hex>`, `set mqtt<N>.preset <name>` / `set mqtt<N>.server <...>`,
+  `set mqtt<N>.iata <code>` (region code for that slot; empty = `mqtt.iata`),
   `set mqtt.rx|tx <on|off|advert>`, `get mqtt.status`
 - **MQTT extras**: `set mqtt.config <on|off>` (publishes non-sensitive node config to the
   `config` topic, stored in `/mqtt.json`), `set mqtt.filter.interval <60-600>`,
-  `set mqtt.neighbors <on|off>` + `set mqtt.neighbors.interval <hours>` (PSRAM only)
+  `set mqtt.neighbors <auto|on|off>` (default `auto`: only to slots whose preset asks for
+  it), `set mqtt<N>.neighbors <auto|on|off>` (per slot) and
+  `set mqtt.neighbors.interval <hours>` (PSRAM only)
+- **Reconnects and self-heal**: `set mqtt.breaker.interval <10-30>` (minutes between retries
+  once a slot stopped reconnecting; default 30), `set mqtt.selfheal <on|off>` (reboot when
+  MQTT is stuck in a state only a reboot clears; default `off`)
+- **Diagnostics**: `get crash` / `clear crash` (last panic from the flash core dump; the next
+  status message carries it once), `get mqtt.stacks` (free stack per MQTT task)
 - **NTP**: `set mqtt.ntp <host|none>`, `get mqtt.ntp.diag`
 - **Network link**: `get link.status` (medium, connection, IP, signal and uptime;
-  replaces `get wifi.status`), `get link.diag` (why Ethernet or WiFi was chosen,
+  replaces `get wifi.status`; shows the IPv6 address too when the node has one), `get link.diag` (why Ethernet or WiFi was chosen,
   ThinkNode M7 Ethernet builds), `get link.dns` (live DNS resolvers and gateway)
 - **Advert check**: `set mqtt.advert.verify <on|off>` / `get mqtt.advert.verify`
   (skip publishing adverts whose signature fails; default `off`)
@@ -135,3 +144,11 @@ ESP32 observer builds only.
 
 Published topics (suffixes off a common prefix): `status`, `packets`, `filter`,
 `neighbors`, `config`.
+
+### Companion Observer
+
+The [Companion Observer](releases.md#companion-observer) answers the same WiFi, MQTT, NTP,
+network-link and diagnostics commands, from the USB serial console, the app's command line
+and remote admin, plus the [companion filter](#companion-filter). It refuses `ota ...` and
+`set mqtt.selfheal`; SNMP, fault alerts, the web portal and neighbour publishing are not
+built in.

@@ -8,6 +8,9 @@ observer-capable boards in detail.
 - **Repeater**: relays packets multi-hop; runs on nearly every supported board.
 - **Observer/MQTT**: a repeater or room server that uplinks to MQTT. This needs an ESP32
   board with WiFi (see the table below).
+- **Companion Observer**: a WiFi companion and MQTT observer in one image, on Heltec V3,
+  Heltec V4 (also the expansion kit), Xiao S3 WIO and Waveshare S3 LR1121. See
+  [Releases](releases.md#companion-observer).
 
 All boards use the global radio defaults: `LORA_FREQ=869.618`, `LORA_BW=62.5`,
 `LORA_SF=8`.

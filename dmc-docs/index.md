@@ -3,6 +3,9 @@
 DutchMeshCore levert repeater-firmware voor het Nederlandse MeshCore-netwerk in drie
 smaken: repeater met filters (`dmc-dev`), repeater met filters en packetlog
 (`dmc-dev-packetlog`), en observer met on-device MQTT en OTA (`dmc-observer-dev`).
+Daarnaast zijn er twee companion-builds: de companion met ontvangstfilter (`dmc-dev`) en de
+Companion Observer, een wifi-companion en MQTT-observer in één (`dmc-observer-dev`).
+Zie [Releases](releases.md).
 
 ## Wat wil je doen
 

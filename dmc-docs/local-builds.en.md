@@ -48,6 +48,35 @@ pio device monitor --port <PORT> --baud 115200
 `v1.18.0-dutchmeshcore.nl-<hash>` in `ver`, or `v1.18.0-dev-dutchmeshcore.nl-<hash>` with
 `DMC_CHANNEL=dev`. The file name stays `<env>-v1.18.0-<hash>.bin`.
 
+## Firmware sets
+
+`build.sh` also builds whole sets into `out/`, one command per set. Run each from the branch
+that has the envs:
+
+| Command | Branch | Builds |
+| --- | --- | --- |
+| `bash build.sh build-dmc-repeater-firmwares` | `dmc-dev`, `dmc-dev-packetlog` | every `*_repeater` |
+| `bash build.sh build-room-server-firmwares` | `dmc-dev` | every `*_room_server` |
+| `bash build.sh build-companion-firmwares` | `dmc-dev` | every companion |
+| `bash build.sh build-repeater-mqtt-firmwares` | `dmc-observer-dev` | every `*_repeater_observer_mqtt` |
+| `bash build.sh build-room-server-mqtt-firmwares` | `dmc-observer-dev` | every `*_room_server_observer_mqtt` |
+| `bash build.sh build-companion-observer-firmwares` | `dmc-observer-dev` | every `*_companion_observer_wifi` |
+
+Companion Observer builds report `v1.18.0-dutchmeshcore.nl-comp-obs-<hash>`. For observer
+targets `build.sh` first downloads the reduced-TLS mbedTLS libraries
+(`scripts/fetch_mbedtls_4k.sh`, SHA-256 pinned), so the first build needs internet access.
+
+To publish a set as a draft pre-release without GitHub runners, use
+`scripts/publish-release.sh` (needs a `GITHUB_TOKEN` with `contents: write`):
+
+```bash
+GITHUB_TOKEN=... bash scripts/publish-release.sh \
+  build-companion-observer-firmwares v1.18.0 dmc-companion-observer-v1.18.0 "DMC Companion Observer Firmware v1.18.0"
+```
+
+Review the draft on GitHub and publish it by hand. The usual route is the release button,
+see [Releases](releases.md#building-a-release-maintainers).
+
 ## Radio defaults
 
 From `[arduino_base]` in `platformio.ini`:
